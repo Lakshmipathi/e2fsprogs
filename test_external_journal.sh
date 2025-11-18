@@ -85,10 +85,9 @@ JOURNAL_SIZE_BEFORE=$(stat -c %s journal.img)
 echo "  Journal MD5: ${JOURNAL_HASH_BEFORE:0:16}..."
 echo "  Journal size: $JOURNAL_SIZE_BEFORE bytes"
 
-SEQ_BEFORE=$($E2FSPROGS_DIR/misc/dumpe2fs /dev/loop30 2>/dev/null | grep "Journal sequence:" | awk '{print $3}')
-START_BEFORE=$($E2FSPROGS_DIR/misc/dumpe2fs /dev/loop30 2>/dev/null | grep "Journal start:" | awk '{print $3}')
-echo "  Sequence: $SEQ_BEFORE"
-echo "  Start: $START_BEFORE"
+# For external journal, check the journal DEVICE not main FS
+echo "  Journal device logdump (first 10 lines):"
+$E2FSPROGS_DIR/debugfs/debugfs -R "logdump -a" /dev/loop31 2>/dev/null | head -10 | sed 's/^/    /'
 echo ""
 
 echo -e "${CYAN}[3/5] Creating file1.txt${NC}"
@@ -108,34 +107,39 @@ else
     echo -e "  ${YELLOW}⚠ Journal unchanged${NC}"
 fi
 
-SEQ_AFTER=$($E2FSPROGS_DIR/misc/dumpe2fs /dev/loop30 2>/dev/null | grep "Journal sequence:" | awk '{print $3}')
-START_AFTER=$($E2FSPROGS_DIR/misc/dumpe2fs /dev/loop30 2>/dev/null | grep "Journal start:" | awk '{print $3}')
-echo "  Sequence: $SEQ_BEFORE → $SEQ_AFTER"
-echo "  Start: $START_BEFORE → $START_AFTER"
+echo "  Journal device logdump (first 20 lines):"
+LOGDUMP_AFTER=$($E2FSPROGS_DIR/debugfs/debugfs -R "logdump -a" /dev/loop31 2>/dev/null | head -20)
+echo "$LOGDUMP_AFTER" | sed 's/^/    /'
 
-if [ "$START_AFTER" != "0" ]; then
-    echo -e "  ${GREEN}✓✓✓ Journal NOT checkpointed! (Start=$START_AFTER)${NC}"
+# Count transactions in journal
+DESC_COUNT=$(echo "$LOGDUMP_AFTER" | grep -c "type 1 (descriptor block)" || echo "0")
+COMMIT_COUNT=$(echo "$LOGDUMP_AFTER" | grep -c "type 2 (commit block)" || echo "0")
+echo "  Descriptor blocks: $DESC_COUNT"
+echo "  Commit blocks: $COMMIT_COUNT"
+
+if [ "$DESC_COUNT" -gt 0 ] || [ "$COMMIT_COUNT" -gt 0 ]; then
+    echo -e "  ${GREEN}✓✓✓ Journal has TRANSACTIONS!${NC}"
 else
-    echo -e "  ${RED}⚠ Journal checkpointed (Start=0)${NC}"
+    echo -e "  ${YELLOW}⚠ No transactions found in journal${NC}"
 fi
 echo ""
 
 echo -e "${CYAN}[5/5] Wait 2 seconds and check persistence${NC}"
 sleep 2
-SEQ_2S=$($E2FSPROGS_DIR/misc/dumpe2fs /dev/loop30 2>/dev/null | grep "Journal sequence:" | awk '{print $3}')
-START_2S=$($E2FSPROGS_DIR/misc/dumpe2fs /dev/loop30 2>/dev/null | grep "Journal start:" | awk '{print $3}')
 JOURNAL_HASH_2S=$(md5sum journal.img | awk '{print $1}')
-
-echo "  Sequence: $SEQ_AFTER → $SEQ_2S"
-echo "  Start: $START_AFTER → $START_2S"
 echo "  Journal MD5: ${JOURNAL_HASH_2S:0:16}..."
 
-if [ "$START_2S" != "0" ] && [ "$JOURNAL_HASH_2S" = "$JOURNAL_HASH_AFTER" ]; then
+LOGDUMP_2S=$($E2FSPROGS_DIR/debugfs/debugfs -R "logdump -a" /dev/loop31 2>/dev/null | head -10)
+DESC_COUNT_2S=$(echo "$LOGDUMP_2S" | grep -c "type 1 (descriptor block)" || echo "0")
+COMMIT_COUNT_2S=$(echo "$LOGDUMP_2S" | grep -c "type 2 (commit block)" || echo "0")
+
+echo "  Descriptor blocks: $DESC_COUNT → $DESC_COUNT_2S"
+echo "  Commit blocks: $COMMIT_COUNT → $COMMIT_COUNT_2S"
+
+if [ "$DESC_COUNT_2S" -gt 0 ] || [ "$COMMIT_COUNT_2S" -gt 0 ]; then
     echo -e "  ${GREEN}✓✓✓ Journal PERSISTS after 2 seconds!${NC}"
-elif [ "$START_2S" = "0" ]; then
-    echo -e "  ${RED}⚠ Journal checkpointed within 2 seconds${NC}"
 else
-    echo -e "  ${YELLOW}⚠ Journal changed (commit happened)${NC}"
+    echo -e "  ${RED}⚠ Journal cleared within 2 seconds${NC}"
 fi
 echo ""
 
@@ -175,27 +179,30 @@ echo "RESULTS"
 echo "====================================================================${NC}"
 echo ""
 
-if [ "$JOURNAL_HASH_BEFORE" != "$JOURNAL_HASH_AFTER" ]; then
+if [ "$DESC_COUNT" -gt 0 ] || [ "$COMMIT_COUNT" -gt 0 ]; then
     echo -e "${GREEN}✓ SUCCESS: External journal captured file changes!${NC}"
     echo ""
     echo "Key findings:"
-    echo "  1. Journal.img changes when file is created"
-    echo "  2. We can copy journal.img independently"
-    echo "  3. No filesystem operations needed to read journal"
+    echo "  1. Journal.img has transactions (descriptor/commit blocks)"
+    echo "  2. We can read journal device independently with debugfs logdump"
+    echo "  3. Journal.img can be copied for replication"
+    echo "  4. No need to access main filesystem to read journal"
     echo ""
     echo "This means external journal SOLVES the checkpoint timing issue!"
     echo ""
     echo "Next steps:"
-    echo "  - Implement continuous monitoring of journal.img"
-    echo "  - Copy journal.img when it changes (md5sum detection)"
-    echo "  - Apply captured journal to replica"
+    echo "  - Unmount filesystem and read journal.img offline"
+    echo "  - Copy journal.img to server2"
+    echo "  - Apply journal to replica using e2fsck"
+    echo "  - Test full replication workflow"
 else
     echo -e "${RED}✗ FAILED: External journal didn't capture changes${NC}"
     echo ""
     echo "Possible reasons:"
-    echo "  - Journal still checkpoints immediately"
+    echo "  - Journal still checkpoints immediately even with external device"
     echo "  - data=journal mode not working with external journal"
-    echo "  - Need different mount options"
+    echo "  - Need to unmount before reading journal"
+    echo "  - Different mount options required"
 fi
 echo ""
 
