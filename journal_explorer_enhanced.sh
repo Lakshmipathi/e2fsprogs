@@ -161,8 +161,8 @@ echo -e "${GREEN}✓ Mounted at: $MOUNT_POINT${NC}"
 echo -e "${BLUE}  (mounted with commit=120 to delay journal checkpointing)${NC}"
 wait_for_user
 
-step "Creating file: abc.txt"
-info_box "We'll create a file and trace its blocks through the journal"
+step "Creating file: abc.txt and simulating crash"
+info_box "We'll create a file then immediately 'crash' to preserve journal state"
 echo
 DATE_OUTPUT=$(date)
 echo "$DATE_OUTPUT" > "$MOUNT_POINT/abc.txt"
@@ -170,28 +170,32 @@ echo -e "${GREEN}✓ File created with content:${NC}"
 cat "$MOUNT_POINT/abc.txt"
 echo
 
-# CRITICAL: Freeze filesystem IMMEDIATELY to prevent checkpoint
-# This stops all I/O including journal commits
-echo -e "${CYAN}Freezing filesystem to capture journal state...${NC}"
-fsfreeze -f "$MOUNT_POINT" 2>/dev/null
-echo -e "${GREEN}✓ Filesystem frozen${NC}"
+# Give kernel a tiny moment to start the transaction
+sleep 0.1
 
-# Now capture journal while frozen - transaction MUST still be in journal
+# CRITICAL: Simulate a crash IMMEDIATELY - DON'T sync!
+# Sync triggers checkpoint which empties the journal
+echo -e "${YELLOW}Simulating filesystem crash (no sync, immediate detach)...${NC}"
+echo -e "${BLUE}  This preserves in-flight journal transactions${NC}"
+
+# Detach loop device forcibly WITHOUT unmounting or syncing
+# This simulates a sudden power loss
+losetup -d "$LOOP_DEV" 2>/dev/null || true
+
+# Force unmount to clean up
+umount -f "$MOUNT_POINT" 2>/dev/null || true
+echo -e "${GREEN}✓ Filesystem 'crashed' - journal should contain uncommitted transaction${NC}"
+
+# Now capture journal - it should have the uncommitted/uncheckpointed transaction
 JOURNAL_DUMP="$OUTPUT_DIR/04_full_journal_dump.txt"
-echo -e "${CYAN}Capturing journal state (filesystem frozen, no checkpointing possible)...${NC}"
+echo -e "${CYAN}Capturing journal state (should show uncheckpointed transactions)...${NC}"
 ./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null > "$JOURNAL_DUMP"
 echo -e "${GREEN}✓${NC} Journal captured to: $JOURNAL_DUMP"
 
-# Unfreeze filesystem
-fsfreeze -u "$MOUNT_POINT" 2>/dev/null
-echo -e "${GREEN}✓ Filesystem unfrozen${NC}"
-
 echo -e "${CYAN}Preview of journal dump:${NC}"
-head -20 "$JOURNAL_DUMP"
+head -30 "$JOURNAL_DUMP"
 echo
 wait_for_user
-
-umount "$MOUNT_POINT"
 
 FILE_INFO="$OUTPUT_DIR/02_abc_file_info.txt"
 
