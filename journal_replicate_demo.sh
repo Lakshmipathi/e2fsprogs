@@ -107,12 +107,18 @@ echo ""
 echo -e "${BOLD}${YELLOW}PHASE 3: CAPTURE JOURNAL STATE${NC}"
 echo ""
 
-# Capture journal
-echo -e "${CYAN}[1/1] Running journal capture...${NC}"
+# Capture journal while filesystem is STILL MOUNTED
+# The journal blocks are on disk and can be read from the image file
+echo -e "${CYAN}[1/1] Capturing journal (filesystem still mounted)...${NC}"
+echo -e "${BLUE}  Note: commit=9999 prevents checkpoint, keeping transactions in journal${NC}"
+../journal_replicate_capture.sh server1_fs.img capture_data | grep -E "^\[|✓|Transactions|Generated" | sed 's/^/  /'
+echo ""
+
+# Now we can safely unmount server1
+echo -e "${CYAN}Unmounting server1...${NC}"
 umount server1_mount
 losetup -d "$LOOP1"
-
-../journal_replicate_capture.sh server1_fs.img capture_data | grep -E "^\[|✓|Transactions|Generated" | sed 's/^/  /'
+echo -e "${GREEN}✓${NC} Server1 unmounted"
 echo ""
 
 echo -e "${BOLD}${YELLOW}PHASE 4: VERIFY SERVER2 DOESN'T HAVE CHANGES${NC}"
