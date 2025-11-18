@@ -59,7 +59,7 @@ parse_journal_superblock() {
     local parsed_file="$OUTPUT_DIR/journal_superblock_parsed.txt"
 
     echo -e "${CYAN}Dumping journal superblock...${NC}"
-    ./debugfs/debugfs -R "logdump -s" "$IMG" 2>/dev/null > "$superblock_file"
+    ./misc/dumpe2fs "$IMG" 2>/dev/null | grep -A 30 "^Journal" > "$superblock_file"
 
     echo -e "${GREEN}✓${NC} Saved to: $superblock_file"
     echo
@@ -202,7 +202,7 @@ trace_file_blocks() {
     echo -e "${CYAN}Step 1: Getting file information...${NC}"
 
     # Get inode number
-    local inode=$(echo "ncheck $filename" | ./debugfs/debugfs "$IMG" 2>/dev/null | grep -v "Inode" | awk '{print $1}')
+    local inode=$(./debugfs/debugfs -R "ncheck $filename" "$IMG" 2>/dev/null | grep -v "Inode" | awk '{print $1}')
 
     if [ -z "$inode" ]; then
         echo -e "${RED}✗ File '$filename' not found in filesystem${NC}"
@@ -214,7 +214,7 @@ trace_file_blocks() {
     echo
 
     # Get inode details
-    echo "stat <$inode>" | ./debugfs/debugfs "$IMG" 2>/dev/null > "$file_info"
+    ./debugfs/debugfs -R "stat <$inode>" "$IMG" 2>/dev/null > "$file_info"
 
     # Extract block numbers
     echo -e "${CYAN}Step 2: Extracting file blocks...${NC}"

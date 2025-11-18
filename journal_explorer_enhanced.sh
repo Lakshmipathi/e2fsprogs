@@ -104,31 +104,43 @@ info_box "Each field will be explained with its purpose"
 echo
 
 SUPERBLOCK_INITIAL="$OUTPUT_DIR/01_superblock_initial.txt"
-./debugfs/debugfs -R "logdump -s" "$IMG_FILE" 2>/dev/null | tee "$SUPERBLOCK_INITIAL"
+./misc/dumpe2fs "$IMG_FILE" 2>/dev/null | grep -A 30 "^Journal" | tee "$SUPERBLOCK_INITIAL"
 
 echo
 echo -e "${CYAN}Key fields explained:${NC}"
 echo
-grep "Journal sequence" "$SUPERBLOCK_INITIAL" | while read -r line; do
-    seq=$(echo "$line" | awk '{print $NF}')
+
+# Parse Journal sequence
+if grep -q "Journal sequence" "$SUPERBLOCK_INITIAL"; then
+    seq=$(grep "Journal sequence" "$SUPERBLOCK_INITIAL" | awk '{print $NF}')
     echo -e "${BOLD}s_sequence:${NC} $seq"
     echo -e "  ${BLUE}→ Transaction ID counter - increments with each commit${NC}"
-done
-echo
+    echo
+fi
 
-grep "Journal start" "$SUPERBLOCK_INITIAL" | while read -r line; do
-    start=$(echo "$line" | awk '{print $NF}')
+# Parse Journal start
+if grep -q "Journal start:" "$SUPERBLOCK_INITIAL"; then
+    start=$(grep "Journal start:" "$SUPERBLOCK_INITIAL" | awk '{print $NF}')
     echo -e "${BOLD}s_start:${NC} $start"
     echo -e "  ${BLUE}→ Where recovery begins (0 = no pending transactions)${NC}"
-done
-echo
+    echo
+fi
 
-grep "Journal maxlen" "$SUPERBLOCK_INITIAL" | while read -r line; do
-    maxlen=$(echo "$line" | awk '{print $NF}')
+# Parse Total journal blocks
+if grep -q "Total journal blocks" "$SUPERBLOCK_INITIAL"; then
+    maxlen=$(grep "Total journal blocks" "$SUPERBLOCK_INITIAL" | awk '{print $NF}')
     echo -e "${BOLD}s_maxlen:${NC} $maxlen blocks"
     echo -e "  ${BLUE}→ Total journal size (circular buffer)${NC}"
-done
-echo
+    echo
+fi
+
+# Parse Total journal size
+if grep -q "Total journal size" "$SUPERBLOCK_INITIAL"; then
+    size=$(grep "Total journal size" "$SUPERBLOCK_INITIAL" | awk '{print $NF}')
+    echo -e "${BOLD}Journal Size:${NC} $size"
+    echo -e "  ${BLUE}→ Human-readable total size${NC}"
+    echo
+fi
 
 echo -e "${GREEN}✓${NC} Saved to: $SUPERBLOCK_INITIAL"
 wait_for_user
@@ -162,24 +174,33 @@ step "Getting file inode and block information"
 umount "$MOUNT_POINT"
 
 FILE_INFO="$OUTPUT_DIR/02_abc_file_info.txt"
-echo "ncheck abc.txt" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null > "$FILE_INFO"
 
-INODE=$(grep -v "Inode" "$FILE_INFO" | awk '{print $1}' | head -1)
+# Get inode using debugfs ncheck with -R flag
+INODE=$(./debugfs/debugfs -R "ncheck abc.txt" "$IMG_FILE" 2>/dev/null | grep -v "Inode" | awk '{print $1}' | head -1)
 
 echo -e "${CYAN}File information:${NC}"
-echo "stat <$INODE>" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | tee -a "$FILE_INFO"
-echo
-echo -e "${GREEN}✓${NC} Inode number: ${BOLD}$INODE${NC}"
-echo -e "${GREEN}✓${NC} Saved to: $FILE_INFO"
-echo
+if [ -n "$INODE" ] && [ "$INODE" != "debugfs:" ]; then
+    ./debugfs/debugfs -R "stat <$INODE>" "$IMG_FILE" 2>/dev/null | tee "$FILE_INFO"
+    echo
+    echo -e "${GREEN}✓${NC} Inode number: ${BOLD}$INODE${NC}"
+    echo -e "${GREEN}✓${NC} Saved to: $FILE_INFO"
+    echo
 
-# Extract blocks
-BLOCKS=$(echo "stat <$INODE>" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | grep "BLOCKS:" -A 5 | grep -oE '\([0-9]+\)' | tr -d '()' | head -10)
+    # Extract blocks
+    BLOCKS=$(./debugfs/debugfs -R "stat <$INODE>" "$IMG_FILE" 2>/dev/null | grep "BLOCKS:" -A 5 | grep -oE '\([0-9]+\)' | tr -d '()' | head -10)
 
-echo -e "${YELLOW}Data blocks used by abc.txt:${NC}"
-for block in $BLOCKS; do
-    echo -e "  ${BOLD}Block $block${NC}"
-done
+    echo -e "${YELLOW}Data blocks used by abc.txt:${NC}"
+    if [ -n "$BLOCKS" ]; then
+        for block in $BLOCKS; do
+            echo -e "  ${BOLD}Block $block${NC}"
+        done
+    else
+        echo -e "  ${BLUE}(file uses inline data - no separate blocks allocated)${NC}"
+    fi
+else
+    echo -e "${YELLOW}Could not find inode for abc.txt${NC}" | tee "$FILE_INFO"
+    BLOCKS=""
+fi
 echo
 
 wait_for_user
@@ -192,7 +213,7 @@ section_header "PHASE 4: JOURNAL ANALYSIS AFTER FILE CREATION"
 
 step "Dumping journal superblock (after file creation)"
 SUPERBLOCK_AFTER="$OUTPUT_DIR/03_superblock_after_create.txt"
-./debugfs/debugfs -R "logdump -s" "$IMG_FILE" 2>/dev/null | tee "$SUPERBLOCK_AFTER"
+./misc/dumpe2fs "$IMG_FILE" 2>/dev/null | grep -A 30 "^Journal" | tee "$SUPERBLOCK_AFTER"
 echo
 echo -e "${GREEN}✓${NC} Saved to: $SUPERBLOCK_AFTER"
 echo
@@ -201,26 +222,26 @@ step "Comparing journal state"
 echo -e "${CYAN}Comparing initial vs. after file creation:${NC}"
 echo
 
-OLD_SEQ=$(grep "Journal sequence" "$SUPERBLOCK_INITIAL" | awk '{print $NF}')
-NEW_SEQ=$(grep "Journal sequence" "$SUPERBLOCK_AFTER" | awk '{print $NF}')
+OLD_SEQ=$(grep "Journal sequence" "$SUPERBLOCK_INITIAL" 2>/dev/null | awk '{print $NF}')
+NEW_SEQ=$(grep "Journal sequence" "$SUPERBLOCK_AFTER" 2>/dev/null | awk '{print $NF}')
 
 echo -e "  ${BOLD}s_sequence${NC}"
-echo -e "    Before: $OLD_SEQ"
-echo -e "    After:  $NEW_SEQ"
-if [ "$OLD_SEQ" != "$NEW_SEQ" ]; then
-    echo -e "    ${GREEN}→ Transaction committed!${NC}"
-else
-    echo -e "    ${YELLOW}→ No change (may be in cache)${NC}"
+echo -e "    Before: ${OLD_SEQ:-N/A}"
+echo -e "    After:  ${NEW_SEQ:-N/A}"
+if [ -n "$OLD_SEQ" ] && [ -n "$NEW_SEQ" ] && [ "$OLD_SEQ" != "$NEW_SEQ" ]; then
+    echo -e "    ${GREEN}→ Transaction committed! Sequence increased.${NC}"
+elif [ -n "$OLD_SEQ" ] && [ -n "$NEW_SEQ" ]; then
+    echo -e "    ${YELLOW}→ Sequence unchanged (transaction may be in cache)${NC}"
 fi
 echo
 
-OLD_START=$(grep "Journal start:" "$SUPERBLOCK_INITIAL" | awk '{print $NF}')
-NEW_START=$(grep "Journal start:" "$SUPERBLOCK_AFTER" | awk '{print $NF}')
+OLD_START=$(grep "Journal start:" "$SUPERBLOCK_INITIAL" 2>/dev/null | awk '{print $NF}')
+NEW_START=$(grep "Journal start:" "$SUPERBLOCK_AFTER" 2>/dev/null | awk '{print $NF}')
 
 echo -e "  ${BOLD}s_start${NC}"
-echo -e "    Before: $OLD_START"
-echo -e "    After:  $NEW_START"
-if [ "$OLD_START" != "$NEW_START" ]; then
+echo -e "    Before: ${OLD_START:-N/A}"
+echo -e "    After:  ${NEW_START:-N/A}"
+if [ -n "$OLD_START" ] && [ -n "$NEW_START" ] && [ "$OLD_START" != "$NEW_START" ]; then
     echo -e "    ${CYAN}→ Recovery position changed${NC}"
 fi
 echo
@@ -250,23 +271,25 @@ echo -e "${BOLD}${YELLOW}BLOCK TRACE RESULTS:${NC}\n" | tee "$BLOCK_TRACE"
 found_any=0
 current_trans=""
 
-while IFS= read -r line; do
-    if echo "$line" | grep -q "Found expected sequence"; then
-        current_trans=$(echo "$line" | awk '{print $4}' | tr -d ',')
-    fi
-
-    for block in $BLOCKS; do
-        if echo "$line" | grep -qE "\\b$block\\b"; then
-            if [ "$found_any" = "0" ]; then
-                echo -e "${GREEN}✓ Found file blocks in journal!${NC}\n" | tee -a "$BLOCK_TRACE"
-                found_any=1
-            fi
-            echo -e "${MAGENTA}Transaction $current_trans:${NC}" | tee -a "$BLOCK_TRACE"
-            echo -e "  ${CYAN}Block $block:${NC} $line" | tee -a "$BLOCK_TRACE"
-            echo | tee -a "$BLOCK_TRACE"
+if [ -n "$BLOCKS" ]; then
+    while IFS= read -r line; do
+        if echo "$line" | grep -q "Found expected sequence"; then
+            current_trans=$(echo "$line" | awk '{print $4}' | tr -d ',')
         fi
-    done
-done < "$JOURNAL_DUMP"
+
+        for block in $BLOCKS; do
+            if echo "$line" | grep -qE "\\b$block\\b"; then
+                if [ "$found_any" = "0" ]; then
+                    echo -e "${GREEN}✓ Found file blocks in journal!${NC}\n" | tee -a "$BLOCK_TRACE"
+                    found_any=1
+                fi
+                echo -e "${MAGENTA}Transaction $current_trans:${NC}" | tee -a "$BLOCK_TRACE"
+                echo -e "  ${CYAN}Block $block:${NC} $line" | tee -a "$BLOCK_TRACE"
+                echo | tee -a "$BLOCK_TRACE"
+            fi
+        done
+    done < "$JOURNAL_DUMP"
+fi
 
 if [ "$found_any" = "0" ]; then
     echo -e "${YELLOW}No direct block references found in journal.${NC}" | tee -a "$BLOCK_TRACE"
@@ -291,9 +314,9 @@ TRANSACTION_ANALYSIS="$OUTPUT_DIR/06_transaction_analysis.txt"
 
 echo -e "${BOLD}${YELLOW}TRANSACTION ANALYSIS:${NC}\n" | tee "$TRANSACTION_ANALYSIS"
 
-desc_count=$(grep -c "Descriptor block" "$JOURNAL_DUMP" || echo "0")
-commit_count=$(grep -c "Commit block" "$JOURNAL_DUMP" || echo "0")
-revoke_count=$(grep -c "Revoke block" "$JOURNAL_DUMP" || echo "0")
+desc_count=$(grep -c "Descriptor block" "$JOURNAL_DUMP" 2>/dev/null || echo "0")
+commit_count=$(grep -c "Commit block" "$JOURNAL_DUMP" 2>/dev/null || echo "0")
+revoke_count=$(grep -c "Revoke block" "$JOURNAL_DUMP" 2>/dev/null || echo "0")
 
 echo -e "${CYAN}Block Type Counts:${NC}" | tee -a "$TRANSACTION_ANALYSIS"
 echo -e "  Descriptor blocks: ${BOLD}$desc_count${NC}" | tee -a "$TRANSACTION_ANALYSIS"
@@ -305,7 +328,7 @@ echo -e "    ${BLUE}→ List blocks that should NOT be replayed (deletions)${NC}
 echo | tee -a "$TRANSACTION_ANALYSIS"
 
 echo -e "${CYAN}Transaction Sequences:${NC}" | tee -a "$TRANSACTION_ANALYSIS"
-grep "Found expected sequence" "$JOURNAL_DUMP" | while read -r line; do
+grep "Found expected sequence" "$JOURNAL_DUMP" 2>/dev/null | while read -r line; do
     seq=$(echo "$line" | awk '{print $4}' | tr -d ',')
     echo -e "  Transaction ID: ${BOLD}$seq${NC}" | tee -a "$TRANSACTION_ANALYSIS"
 done | head -5
@@ -313,7 +336,7 @@ echo | tee -a "$TRANSACTION_ANALYSIS"
 
 if [ "$desc_count" -gt 0 ]; then
     echo -e "${CYAN}First Descriptor Block:${NC}" | tee -a "$TRANSACTION_ANALYSIS"
-    grep -A 10 "Descriptor block" "$JOURNAL_DUMP" | head -12 | tee -a "$TRANSACTION_ANALYSIS"
+    grep -A 10 "Descriptor block" "$JOURNAL_DUMP" 2>/dev/null | head -12 | tee -a "$TRANSACTION_ANALYSIS"
     echo | tee -a "$TRANSACTION_ANALYSIS"
 fi
 
@@ -353,9 +376,13 @@ echo -e "  • ${BOLD}s_maxlen${NC} = Total journal size in blocks"
 echo -e "  • ${BOLD}s_errno${NC} = Error code (0 = clean)"
 echo
 echo -e "${YELLOW}File Block Tracing:${NC}"
-echo -e "  • File inode: $INODE"
-echo -e "  • Data blocks: $BLOCKS"
-echo -e "  • Journal references: $([ "$found_any" = "1" ] && echo "Yes" || echo "No (checkpointed)")"
+if [ -n "$INODE" ] && [ "$INODE" != "debugfs:" ]; then
+    echo -e "  • File inode: $INODE"
+    echo -e "  • Data blocks: ${BLOCKS:-inline data}"
+    echo -e "  • Journal references: $([ "$found_any" = "1" ] && echo "Yes" || echo "No (checkpointed or inline data)")"
+else
+    echo -e "  • File inode: Not found"
+fi
 echo
 echo -e "${YELLOW}Transaction Structure:${NC}"
 echo -e "  Each transaction = Descriptor + Metadata blocks + Commit"
