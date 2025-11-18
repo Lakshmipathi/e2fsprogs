@@ -99,25 +99,32 @@ echo -e "${CYAN}[3/4] Files on server1:${NC}"
 ls -lR server1_mount | grep -v "^total" | grep -v "^$" | sed 's/^/  /'
 
 # Wait for journal commit (don't call sync - it triggers checkpoint!)
-echo -e "${CYAN}[4/4] Waiting for journal commit...${NC}"
-echo -e "${BLUE}  Note: NOT calling sync - it would checkpoint the journal!${NC}"
-echo -e "${BLUE}  Instead, letting ext4 naturally commit to journal...${NC}"
+echo -e "${CYAN}[4/4] Waiting for journal commit and FREEZING filesystem...[0m"
+echo -e "${BLUE}  Letting ext4 commit to journal, then freezing to prevent checkpoint${NC}"
 sleep 2  # Give kernel time to commit transaction to journal
-echo -e "${GREEN}✓${NC} Transaction should be in journal now"
+
+# CRITICAL: Freeze filesystem to prevent checkpoint
+echo -e "${YELLOW}  Freezing filesystem to preserve journal...${NC}"
+fsfreeze -f server1_mount 2>/dev/null || true
+echo -e "${GREEN}✓${NC} Filesystem frozen - journal preserved"
 echo ""
 
 echo -e "${BOLD}${YELLOW}PHASE 3: CAPTURE JOURNAL STATE${NC}"
 echo ""
 
-# Capture journal while filesystem is STILL MOUNTED
-# The journal blocks are on disk and can be read from the image file
-echo -e "${CYAN}[1/1] Capturing journal (filesystem still mounted)...${NC}"
-echo -e "${BLUE}  commit=9999 prevents checkpoint, keeping transactions in journal${NC}"
+# Capture journal while filesystem is FROZEN
+# This ensures transactions are in journal and won't be checkpointed
+echo -e "${CYAN}[1/2] Capturing journal (filesystem frozen)...${NC}"
+echo -e "${BLUE}  Freeze prevents checkpoint, keeping transactions in journal${NC}"
 ../journal_replicate_capture.sh server1_fs.img capture_data | sed 's/^/  /'
 echo ""
 
+# Unfreeze filesystem
+echo -e "${CYAN}[2/2] Unfreezing and unmounting...${NC}"
+fsfreeze -u server1_mount 2>/dev/null || true
+echo -e "${GREEN}✓${NC} Filesystem unfrozen"
+
 # Now we can safely unmount server1
-echo -e "${CYAN}Unmounting server1...${NC}"
 umount server1_mount
 losetup -d "$LOOP1"
 echo -e "${GREEN}✓${NC} Server1 unmounted"
