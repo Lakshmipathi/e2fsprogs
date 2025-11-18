@@ -98,10 +98,12 @@ echo -e "${GREEN}✓${NC} Created abc.txt, file1.txt, file2.txt, testdir/file3.t
 echo -e "${CYAN}[3/4] Files on server1:${NC}"
 ls -lR server1_mount | grep -v "^total" | grep -v "^$" | sed 's/^/  /'
 
-# Sync to journal (but don't checkpoint)
-echo -e "${CYAN}[4/4] Syncing to journal...${NC}"
-sync
-echo -e "${GREEN}✓${NC} Changes written to journal"
+# Wait for journal commit (don't call sync - it triggers checkpoint!)
+echo -e "${CYAN}[4/4] Waiting for journal commit...${NC}"
+echo -e "${BLUE}  Note: NOT calling sync - it would checkpoint the journal!${NC}"
+echo -e "${BLUE}  Instead, letting ext4 naturally commit to journal...${NC}"
+sleep 2  # Give kernel time to commit transaction to journal
+echo -e "${GREEN}✓${NC} Transaction should be in journal now"
 echo ""
 
 echo -e "${BOLD}${YELLOW}PHASE 3: CAPTURE JOURNAL STATE${NC}"
@@ -110,8 +112,8 @@ echo ""
 # Capture journal while filesystem is STILL MOUNTED
 # The journal blocks are on disk and can be read from the image file
 echo -e "${CYAN}[1/1] Capturing journal (filesystem still mounted)...${NC}"
-echo -e "${BLUE}  Note: commit=9999 prevents checkpoint, keeping transactions in journal${NC}"
-../journal_replicate_capture.sh server1_fs.img capture_data | grep -E "^\[|✓|Transactions|Generated" | sed 's/^/  /'
+echo -e "${BLUE}  commit=9999 prevents checkpoint, keeping transactions in journal${NC}"
+../journal_replicate_capture.sh server1_fs.img capture_data | sed 's/^/  /'
 echo ""
 
 # Now we can safely unmount server1

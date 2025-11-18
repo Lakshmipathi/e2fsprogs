@@ -110,15 +110,16 @@ echo "hello" > /mnt/abc.txt
 mkdir /mnt/mydir
 echo "test" > /mnt/mydir/file.txt
 
-# Sync to journal (commit=9999 prevents checkpoint)
-sync
+# IMPORTANT: Don't call sync! It triggers checkpoint and empties journal
+# Instead, let ext4 naturally commit to journal
+sleep 2  # Wait for journal commit
 ```
 
 #### Step 3: Capture Journal State
 
 ```bash
 # Server1: Capture journal (filesystem can stay mounted!)
-# The commit=9999 option prevents checkpointing
+# The commit=9999 delays checkpoint, keeping transactions in journal
 ./journal_replicate_capture.sh fs.img capture_output/
 
 # Now unmount cleanly
@@ -242,12 +243,13 @@ mount -o data=journal,barrier=0,commit=9999 device /mnt
    - Block size, inode size, UUID must match
    - Use `dd` or `cp` to create identical copies
 
-2. **Must Use Long Commit Timeout** ⚠️ CRITICAL
+2. **Must Use Long Commit Timeout AND Avoid Sync** ⚠️ CRITICAL
    - Mount with `commit=9999` to delay checkpointing
-   - This keeps transactions in journal long enough to capture
+   - **DO NOT call `sync`** - it triggers immediate checkpoint (empties journal!)
+   - Let ext4 naturally commit to journal (happens within seconds)
    - Capture BEFORE the commit timeout expires (9999 seconds = ~2.7 hours)
    - Filesystem can remain mounted during capture
-   - Without this, transactions checkpoint quickly and journal empties
+   - Calling `sync` will checkpoint all transactions and make journal empty
 
 3. **Not a Full Backup Solution**
    - Only replicates incremental changes
