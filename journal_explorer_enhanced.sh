@@ -1,0 +1,371 @@
+#!/bin/bash
+#
+# Enhanced Journal Explorer with Parsing and Block Tracing
+# Integrates journal parsing and file block tracing into the learning experience
+#
+
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# Configuration
+IMG_FILE="/tmp/journal_test.img"
+MOUNT_POINT="/tmp/journal_mnt"
+OUTPUT_DIR="/tmp/journal_output_$$"
+IMG_SIZE_MB=100
+JOURNAL_SIZE=8
+
+mkdir -p "$OUTPUT_DIR"
+
+# Cleanup
+cleanup() {
+    echo -e "\n${YELLOW}Cleaning up...${NC}"
+    umount "$MOUNT_POINT" 2>/dev/null || true
+    losetup -d "$LOOP_DEV" 2>/dev/null || true
+    rm -rf "$MOUNT_POINT"
+    rm -f "$IMG_FILE"
+    echo -e "${CYAN}Analysis files preserved in: $OUTPUT_DIR${NC}"
+}
+
+trap cleanup EXIT
+
+print_header() {
+    clear
+    echo -e "${BOLD}${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${CYAN}║    ENHANCED JOURNAL EXPLORER WITH BLOCK TRACING           ║${NC}"
+    echo -e "${BOLD}${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo
+}
+
+wait_for_user() {
+    echo -e "\n${YELLOW}Press ENTER to continue...${NC}"
+    read
+}
+
+section_header() {
+    echo -e "\n${BOLD}${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${MAGENTA}  $1${NC}"
+    echo -e "${BOLD}${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+}
+
+step() {
+    echo -e "${BOLD}${GREEN}[STEP $CURRENT_STEP]${NC} ${BOLD}$1${NC}"
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+}
+
+info_box() {
+    echo -e "${BLUE}╔═══ INFO ═══════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║${NC} $1"
+    echo -e "${BLUE}╚═══════════════════════════════════════════════════════════╝${NC}"
+}
+
+CURRENT_STEP=1
+
+print_header
+echo -e "${BOLD}This enhanced tutorial will:${NC}"
+echo -e "  ${GREEN}✓${NC} Parse and explain journal superblock fields"
+echo -e "  ${GREEN}✓${NC} Trace file blocks through journal transactions"
+echo -e "  ${GREEN}✓${NC} Map journal contents to filesystem operations"
+echo -e "  ${GREEN}✓${NC} Save all analysis to files for review"
+echo
+echo -e "${CYAN}Output directory: $OUTPUT_DIR${NC}"
+echo
+
+wait_for_user
+
+# ============================================================================
+# SETUP
+# ============================================================================
+
+section_header "PHASE 1: FILESYSTEM SETUP"
+
+step "Creating test filesystem"
+dd if=/dev/zero of="$IMG_FILE" bs=1M count=$IMG_SIZE_MB status=progress
+./misc/mke2fs -t ext4 -J size=$JOURNAL_SIZE -F "$IMG_FILE" > /dev/null 2>&1
+echo -e "${GREEN}✓ Filesystem created${NC}"
+wait_for_user
+
+# ============================================================================
+# INITIAL JOURNAL ANALYSIS
+# ============================================================================
+
+section_header "PHASE 2: INITIAL JOURNAL SUPERBLOCK ANALYSIS"
+
+step "Parsing journal superblock (before any operations)"
+info_box "Each field will be explained with its purpose"
+echo
+
+SUPERBLOCK_INITIAL="$OUTPUT_DIR/01_superblock_initial.txt"
+./debugfs/debugfs -R "logdump -s" "$IMG_FILE" 2>/dev/null | tee "$SUPERBLOCK_INITIAL"
+
+echo
+echo -e "${CYAN}Key fields explained:${NC}"
+echo
+grep "Journal sequence" "$SUPERBLOCK_INITIAL" | while read -r line; do
+    seq=$(echo "$line" | awk '{print $NF}')
+    echo -e "${BOLD}s_sequence:${NC} $seq"
+    echo -e "  ${BLUE}→ Transaction ID counter - increments with each commit${NC}"
+done
+echo
+
+grep "Journal start" "$SUPERBLOCK_INITIAL" | while read -r line; do
+    start=$(echo "$line" | awk '{print $NF}')
+    echo -e "${BOLD}s_start:${NC} $start"
+    echo -e "  ${BLUE}→ Where recovery begins (0 = no pending transactions)${NC}"
+done
+echo
+
+grep "Journal maxlen" "$SUPERBLOCK_INITIAL" | while read -r line; do
+    maxlen=$(echo "$line" | awk '{print $NF}')
+    echo -e "${BOLD}s_maxlen:${NC} $maxlen blocks"
+    echo -e "  ${BLUE}→ Total journal size (circular buffer)${NC}"
+done
+echo
+
+echo -e "${GREEN}✓${NC} Saved to: $SUPERBLOCK_INITIAL"
+wait_for_user
+
+# ============================================================================
+# CREATE FILE AND TRACE
+# ============================================================================
+
+section_header "PHASE 3: CREATE FILE AND TRACE BLOCKS"
+
+step "Setting up loop device and mounting"
+LOOP_DEV=$(losetup -f)
+losetup "$LOOP_DEV" "$IMG_FILE"
+mkdir -p "$MOUNT_POINT"
+mount "$LOOP_DEV" "$MOUNT_POINT"
+echo -e "${GREEN}✓ Mounted at: $MOUNT_POINT${NC}"
+wait_for_user
+
+step "Creating file: abc.txt"
+info_box "We'll create a file and trace its blocks through the journal"
+echo
+DATE_OUTPUT=$(date)
+echo "$DATE_OUTPUT" > "$MOUNT_POINT/abc.txt"
+sync
+echo -e "${GREEN}✓ File created with content:${NC}"
+cat "$MOUNT_POINT/abc.txt"
+echo
+wait_for_user
+
+step "Getting file inode and block information"
+umount "$MOUNT_POINT"
+
+FILE_INFO="$OUTPUT_DIR/02_abc_file_info.txt"
+echo "ncheck abc.txt" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null > "$FILE_INFO"
+
+INODE=$(grep -v "Inode" "$FILE_INFO" | awk '{print $1}' | head -1)
+
+echo -e "${CYAN}File information:${NC}"
+echo "stat <$INODE>" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | tee -a "$FILE_INFO"
+echo
+echo -e "${GREEN}✓${NC} Inode number: ${BOLD}$INODE${NC}"
+echo -e "${GREEN}✓${NC} Saved to: $FILE_INFO"
+echo
+
+# Extract blocks
+BLOCKS=$(echo "stat <$INODE>" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | grep "BLOCKS:" -A 5 | grep -oE '\([0-9]+\)' | tr -d '()' | head -10)
+
+echo -e "${YELLOW}Data blocks used by abc.txt:${NC}"
+for block in $BLOCKS; do
+    echo -e "  ${BOLD}Block $block${NC}"
+done
+echo
+
+wait_for_user
+
+# ============================================================================
+# JOURNAL ANALYSIS AFTER FILE CREATION
+# ============================================================================
+
+section_header "PHASE 4: JOURNAL ANALYSIS AFTER FILE CREATION"
+
+step "Dumping journal superblock (after file creation)"
+SUPERBLOCK_AFTER="$OUTPUT_DIR/03_superblock_after_create.txt"
+./debugfs/debugfs -R "logdump -s" "$IMG_FILE" 2>/dev/null | tee "$SUPERBLOCK_AFTER"
+echo
+echo -e "${GREEN}✓${NC} Saved to: $SUPERBLOCK_AFTER"
+echo
+
+step "Comparing journal state"
+echo -e "${CYAN}Comparing initial vs. after file creation:${NC}"
+echo
+
+OLD_SEQ=$(grep "Journal sequence" "$SUPERBLOCK_INITIAL" | awk '{print $NF}')
+NEW_SEQ=$(grep "Journal sequence" "$SUPERBLOCK_AFTER" | awk '{print $NF}')
+
+echo -e "  ${BOLD}s_sequence${NC}"
+echo -e "    Before: $OLD_SEQ"
+echo -e "    After:  $NEW_SEQ"
+if [ "$OLD_SEQ" != "$NEW_SEQ" ]; then
+    echo -e "    ${GREEN}→ Transaction committed!${NC}"
+else
+    echo -e "    ${YELLOW}→ No change (may be in cache)${NC}"
+fi
+echo
+
+OLD_START=$(grep "Journal start:" "$SUPERBLOCK_INITIAL" | awk '{print $NF}')
+NEW_START=$(grep "Journal start:" "$SUPERBLOCK_AFTER" | awk '{print $NF}')
+
+echo -e "  ${BOLD}s_start${NC}"
+echo -e "    Before: $OLD_START"
+echo -e "    After:  $NEW_START"
+if [ "$OLD_START" != "$NEW_START" ]; then
+    echo -e "    ${CYAN}→ Recovery position changed${NC}"
+fi
+echo
+
+wait_for_user
+
+step "Dumping full journal to trace transactions"
+JOURNAL_DUMP="$OUTPUT_DIR/04_full_journal_dump.txt"
+./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null | tee "$JOURNAL_DUMP"
+echo
+echo -e "${GREEN}✓${NC} Saved to: $JOURNAL_DUMP"
+wait_for_user
+
+# ============================================================================
+# BLOCK TRACING
+# ============================================================================
+
+section_header "PHASE 5: TRACING abc.txt BLOCKS IN JOURNAL"
+
+step "Searching journal for file blocks"
+info_box "Looking for blocks $BLOCKS in journal transactions"
+echo
+
+BLOCK_TRACE="$OUTPUT_DIR/05_block_trace.txt"
+echo -e "${BOLD}${YELLOW}BLOCK TRACE RESULTS:${NC}\n" | tee "$BLOCK_TRACE"
+
+found_any=0
+current_trans=""
+
+while IFS= read -r line; do
+    if echo "$line" | grep -q "Found expected sequence"; then
+        current_trans=$(echo "$line" | awk '{print $4}' | tr -d ',')
+    fi
+
+    for block in $BLOCKS; do
+        if echo "$line" | grep -qE "\\b$block\\b"; then
+            if [ "$found_any" = "0" ]; then
+                echo -e "${GREEN}✓ Found file blocks in journal!${NC}\n" | tee -a "$BLOCK_TRACE"
+                found_any=1
+            fi
+            echo -e "${MAGENTA}Transaction $current_trans:${NC}" | tee -a "$BLOCK_TRACE"
+            echo -e "  ${CYAN}Block $block:${NC} $line" | tee -a "$BLOCK_TRACE"
+            echo | tee -a "$BLOCK_TRACE"
+        fi
+    done
+done < "$JOURNAL_DUMP"
+
+if [ "$found_any" = "0" ]; then
+    echo -e "${YELLOW}No direct block references found in journal.${NC}" | tee -a "$BLOCK_TRACE"
+    echo -e "${BLUE}Possible reasons:${NC}" | tee -a "$BLOCK_TRACE"
+    echo -e "  • File uses inline data (stored in inode)${NC}" | tee -a "$BLOCK_TRACE"
+    echo -e "  • Transaction already checkpointed${NC}" | tee -a "$BLOCK_TRACE"
+    echo -e "  • Journal wrapped around${NC}" | tee -a "$BLOCK_TRACE"
+fi
+
+echo
+echo -e "${GREEN}✓${NC} Block trace saved to: $BLOCK_TRACE"
+wait_for_user
+
+# ============================================================================
+# TRANSACTION BREAKDOWN
+# ============================================================================
+
+section_header "PHASE 6: TRANSACTION BREAKDOWN"
+
+step "Analyzing transaction structure"
+TRANSACTION_ANALYSIS="$OUTPUT_DIR/06_transaction_analysis.txt"
+
+echo -e "${BOLD}${YELLOW}TRANSACTION ANALYSIS:${NC}\n" | tee "$TRANSACTION_ANALYSIS"
+
+desc_count=$(grep -c "Descriptor block" "$JOURNAL_DUMP" || echo "0")
+commit_count=$(grep -c "Commit block" "$JOURNAL_DUMP" || echo "0")
+revoke_count=$(grep -c "Revoke block" "$JOURNAL_DUMP" || echo "0")
+
+echo -e "${CYAN}Block Type Counts:${NC}" | tee -a "$TRANSACTION_ANALYSIS"
+echo -e "  Descriptor blocks: ${BOLD}$desc_count${NC}" | tee -a "$TRANSACTION_ANALYSIS"
+echo -e "    ${BLUE}→ Define what filesystem blocks are being modified${NC}" | tee -a "$TRANSACTION_ANALYSIS"
+echo -e "  Commit blocks: ${BOLD}$commit_count${NC}" | tee -a "$TRANSACTION_ANALYSIS"
+echo -e "    ${BLUE}→ Mark transactions as complete (atomic commit point)${NC}" | tee -a "$TRANSACTION_ANALYSIS"
+echo -e "  Revoke blocks: ${BOLD}$revoke_count${NC}" | tee -a "$TRANSACTION_ANALYSIS"
+echo -e "    ${BLUE}→ List blocks that should NOT be replayed (deletions)${NC}" | tee -a "$TRANSACTION_ANALYSIS"
+echo | tee -a "$TRANSACTION_ANALYSIS"
+
+echo -e "${CYAN}Transaction Sequences:${NC}" | tee -a "$TRANSACTION_ANALYSIS"
+grep "Found expected sequence" "$JOURNAL_DUMP" | while read -r line; do
+    seq=$(echo "$line" | awk '{print $4}' | tr -d ',')
+    echo -e "  Transaction ID: ${BOLD}$seq${NC}" | tee -a "$TRANSACTION_ANALYSIS"
+done | head -5
+echo | tee -a "$TRANSACTION_ANALYSIS"
+
+if [ "$desc_count" -gt 0 ]; then
+    echo -e "${CYAN}First Descriptor Block:${NC}" | tee -a "$TRANSACTION_ANALYSIS"
+    grep -A 10 "Descriptor block" "$JOURNAL_DUMP" | head -12 | tee -a "$TRANSACTION_ANALYSIS"
+    echo | tee -a "$TRANSACTION_ANALYSIS"
+fi
+
+echo -e "${GREEN}✓${NC} Analysis saved to: $TRANSACTION_ANALYSIS"
+wait_for_user
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+
+section_header "ANALYSIS SUMMARY"
+
+echo -e "${BOLD}${GREEN}All analysis files generated:${NC}\n"
+
+ls -lh "$OUTPUT_DIR" | tail -n +2 | while read -r line; do
+    filename=$(echo "$line" | awk '{print $NF}')
+    size=$(echo "$line" | awk '{print $5}')
+    echo -e "  ${CYAN}$filename${NC} ($size)"
+done
+
+echo
+echo -e "${BOLD}${YELLOW}Quick Reference:${NC}"
+echo -e "  1. Initial journal state:      $SUPERBLOCK_INITIAL"
+echo -e "  2. File inode info:            $FILE_INFO"
+echo -e "  3. Journal after creation:     $SUPERBLOCK_AFTER"
+echo -e "  4. Full journal dump:          $JOURNAL_DUMP"
+echo -e "  5. Block trace:                $BLOCK_TRACE"
+echo -e "  6. Transaction analysis:       $TRANSACTION_ANALYSIS"
+echo
+
+echo -e "${BOLD}${CYAN}Understanding the Results:${NC}"
+echo
+echo -e "${YELLOW}Journal Superblock Fields:${NC}"
+echo -e "  • ${BOLD}s_sequence${NC} = Transaction counter (increases with each commit)"
+echo -e "  • ${BOLD}s_start${NC} = Recovery starting point (block offset in journal)"
+echo -e "  • ${BOLD}s_maxlen${NC} = Total journal size in blocks"
+echo -e "  • ${BOLD}s_errno${NC} = Error code (0 = clean)"
+echo
+echo -e "${YELLOW}File Block Tracing:${NC}"
+echo -e "  • File inode: $INODE"
+echo -e "  • Data blocks: $BLOCKS"
+echo -e "  • Journal references: $([ "$found_any" = "1" ] && echo "Yes" || echo "No (checkpointed)")"
+echo
+echo -e "${YELLOW}Transaction Structure:${NC}"
+echo -e "  Each transaction = Descriptor + Metadata blocks + Commit"
+echo -e "  • Descriptor: Lists which blocks are being written"
+echo -e "  • Metadata: Actual data being journaled"
+echo -e "  • Commit: Atomicity guarantee (transaction is valid)"
+echo
+
+echo -e "${BOLD}${GREEN}Files are preserved in: ${CYAN}$OUTPUT_DIR${NC}"
+echo -e "${YELLOW}Review them to understand the journal layout!${NC}"
+echo
+
+wait_for_user
