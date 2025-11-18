@@ -33,13 +33,13 @@ cd /tmp/test_checkpoint_analysis
 
 echo -e "${YELLOW}Step 1: Create filesystem${NC}"
 dd if=/dev/zero of=test.img bs=1M count=50 2>/dev/null
-../misc/mke2fs -t ext4 -F test.img >/dev/null 2>&1
+./misc/mke2fs -t ext4 -F test.img >/dev/null 2>&1
 echo -e "${GREEN}✓${NC} Filesystem created"
 echo ""
 
 echo -e "${YELLOW}Step 2: Check initial journal state${NC}"
-INIT_SEQ=$(../misc/dumpe2fs test.img 2>/dev/null | grep "Journal sequence:" | awk '{print $3}')
-INIT_START=$(../misc/dumpe2fs test.img 2>/dev/null | grep "Journal start:" | awk '{print $3}')
+INIT_SEQ=$(./misc/dumpe2fs test.img 2>/dev/null | grep "Journal sequence:" | awk '{print $3}')
+INIT_START=$(./misc/dumpe2fs test.img 2>/dev/null | grep "Journal start:" | awk '{print $3}')
 echo "  Initial sequence: $INIT_SEQ"
 echo "  Initial start: $INIT_START"
 echo ""
@@ -65,11 +65,11 @@ check_journal() {
     local label="$1"
     local elapsed="$2"
 
-    SEQ=$(../misc/dumpe2fs test.img 2>/dev/null | grep "Journal sequence:" | awk '{print $3}')
-    START=$(../misc/dumpe2fs test.img 2>/dev/null | grep "Journal start:" | awk '{print $3}')
+    SEQ=$(./misc/dumpe2fs test.img 2>/dev/null | grep "Journal sequence:" | awk '{print $3}')
+    START=$(./misc/dumpe2fs test.img 2>/dev/null | grep "Journal start:" | awk '{print $3}')
 
     # Count transaction blocks in logdump
-    LOGDUMP=$(../debugfs/debugfs -R "logdump -a" test.img 2>/dev/null)
+    LOGDUMP=$(./debugfs/debugfs -R "logdump -a" test.img 2>/dev/null)
     DESC_COUNT=$(echo "$LOGDUMP" | grep -c "type 1 (descriptor block)" || echo "0")
     COMMIT_COUNT=$(echo "$LOGDUMP" | grep -c "type 2 (commit block)" || echo "0")
 
@@ -119,7 +119,7 @@ sleep 5
 check_journal "10 seconds" "10"
 
 echo -e "${YELLOW}Step 6: Try capturing with our replication script${NC}"
-../journal_replicate_capture.sh test.img capture_test > capture.log 2>&1 || true
+./journal_replicate_capture.sh test.img capture_test > capture.log 2>&1 || true
 TRANS_FOUND=$(grep "Transactions found:" capture.log | awk '{print $3}' || echo "0")
 echo "  Transactions captured: $TRANS_FOUND"
 if [ "$TRANS_FOUND" = "0" ]; then
