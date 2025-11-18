@@ -223,8 +223,8 @@ if [ -n "$INODE" ] && [ "$INODE" != "debugfs:" ]; then
     echo -e "${GREEN}✓${NC} Saved to: $FILE_INFO"
     echo
 
-    # Extract blocks
-    BLOCKS=$(./debugfs/debugfs -R "stat <$INODE>" "$IMG_FILE" 2>/dev/null | grep "BLOCKS:" -A 5 | grep -oE '\([0-9]+\)' | tr -d '()' | head -10)
+    # Extract blocks - handle both BLOCKS: and EXTENTS: formats
+    BLOCKS=$(./debugfs/debugfs -R "stat <$INODE>" "$IMG_FILE" 2>/dev/null | grep -E "(BLOCKS:|EXTENTS:)" -A 10 | grep -oE '\([0-9]+\):?[0-9]+' | grep -oE '[0-9]+$' | head -10)
 
     echo -e "${YELLOW}Data blocks used by abc.txt:${NC}"
     if [ -n "$BLOCKS" ]; then
@@ -374,11 +374,12 @@ echo -e "${BOLD}${YELLOW}TRANSACTION ANALYSIS:${NC}\n"
 
 # Count block types (capture to variable to avoid newline issues)
 # Note: grep -c returns 0 and exits with status 1 when no matches, so we need to handle that
-desc_count=$(grep -c "Descriptor block" "$JOURNAL_DUMP" 2>/dev/null)
+# Match actual logdump format: "type 1 (descriptor block)"
+desc_count=$(grep -c "type 1 (descriptor block)" "$JOURNAL_DUMP" 2>/dev/null)
 desc_count=${desc_count:-0}
-commit_count=$(grep -c "Commit block" "$JOURNAL_DUMP" 2>/dev/null)
+commit_count=$(grep -c "type 2 (commit block)" "$JOURNAL_DUMP" 2>/dev/null)
 commit_count=${commit_count:-0}
-revoke_count=$(grep -c "Revoke block" "$JOURNAL_DUMP" 2>/dev/null)
+revoke_count=$(grep -c "type 5 (revoke block)" "$JOURNAL_DUMP" 2>/dev/null)
 revoke_count=${revoke_count:-0}
 
 # Write to both terminal and file (no tee to avoid ANSI codes in file)
@@ -423,13 +424,31 @@ echo
 
 if [ "$desc_count" -gt 0 ]; then
     {
-        echo "First Descriptor Block:"
-        grep -A 10 "Descriptor block" "$JOURNAL_DUMP" 2>/dev/null | head -12
+        echo "Filesystem Blocks Modified in Transactions:"
+        echo
+        grep "FS block.*logged at" "$JOURNAL_DUMP" 2>/dev/null | head -20
+        echo
+        echo "What these blocks contain:"
+        echo "  Block 1 = Superblock (filesystem metadata)"
+        echo "  Block 2 = Group descriptors (block group info)"
+        echo "  Block 260-261 = Block bitmaps (which blocks are free/used)"
+        echo "  Block 272 = Inode bitmap (which inodes are free/used)"
+        echo "  Block 285/288/289 = Inode tables & directory blocks"
+        echo "  Block 8705+, 16385+ = Data blocks (your file contents)"
         echo
     } >> "$TRANSACTION_ANALYSIS"
 
-    echo -e "${CYAN}First Descriptor Block:${NC}"
-    grep -A 10 "Descriptor block" "$JOURNAL_DUMP" 2>/dev/null | head -12
+    echo -e "${CYAN}Filesystem Blocks Modified in Transactions:${NC}"
+    echo
+    grep "FS block.*logged at" "$JOURNAL_DUMP" 2>/dev/null | head -20
+    echo
+    echo -e "${BLUE}What these blocks contain:${NC}"
+    echo -e "  Block 1 = ${BOLD}Superblock${NC} (filesystem metadata)"
+    echo -e "  Block 2 = ${BOLD}Group descriptors${NC} (block group info)"
+    echo -e "  Block 260-261 = ${BOLD}Block bitmaps${NC} (which blocks are free/used)"
+    echo -e "  Block 272 = ${BOLD}Inode bitmap${NC} (which inodes are free/used)"
+    echo -e "  Block 285/288/289 = ${BOLD}Inode tables & directories${NC}"
+    echo -e "  Block 8705+, 16385+ = ${BOLD}Data blocks${NC} (your file contents)"
     echo
 fi
 
