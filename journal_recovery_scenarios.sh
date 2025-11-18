@@ -94,7 +94,7 @@ setup_filesystem() {
 show_journal_state() {
     local title="$1"
     echo -e "${CYAN}═══ $title ═══${NC}"
-    echo "debugfs -R 'logdump -s' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | grep -E "(Journal starts|sequence|maxlen|start|errno)"
+    ./debugfs/debugfs -R "logdump -s" "$IMG_FILE" 2>/dev/null | grep -E "(Journal starts|sequence|maxlen|start|errno)"
     echo
 }
 
@@ -180,7 +180,7 @@ scenario_multiple_transactions() {
 
     info "Analyzing transactions in journal..."
     echo
-    JOURNAL_OUTPUT=$(echo "debugfs -R 'logdump -a' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null)
+    JOURNAL_OUTPUT=$(./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null)
 
     DESCRIPTOR_COUNT=$(echo "$JOURNAL_OUTPUT" | grep -c "Descriptor block" || echo "0")
     COMMIT_COUNT=$(echo "$JOURNAL_OUTPUT" | grep -c "Commit block" || echo "0")
@@ -230,7 +230,7 @@ scenario_deletion_revoke() {
 
     info "Searching for revoke blocks..."
     echo
-    REVOKE_OUTPUT=$(echo "debugfs -R 'logdump -a' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | grep -i -A 10 "revoke")
+    REVOKE_OUTPUT=$(./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null | grep -i -A 10 "revoke")
 
     if [ -n "$REVOKE_OUTPUT" ]; then
         success "Found revoke blocks!"
@@ -241,7 +241,7 @@ scenario_deletion_revoke() {
 
     echo
     info "Examining descriptor block flags for revoked blocks..."
-    echo "debugfs -R 'logdump -a' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | grep -i "deleted"
+    ./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null | grep -i "deleted"
 
     wait_user
     mount "$LOOP_DEV" "$MOUNT_POINT"
@@ -258,7 +258,7 @@ scenario_journal_wraparound() {
 
     info "Getting initial journal state..."
     umount "$MOUNT_POINT"
-    INITIAL_START=$(echo "debugfs -R 'logdump -s' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | grep "Journal starts" | awk '{print $NF}')
+    INITIAL_START=$(./debugfs/debugfs -R "logdump -s" "$IMG_FILE" 2>/dev/null | grep "Journal starts" | awk '{print $NF}')
     mount "$LOOP_DEV" "$MOUNT_POINT"
 
     echo -e "${CYAN}Initial journal start block: $INITIAL_START${NC}"
@@ -277,7 +277,7 @@ scenario_journal_wraparound() {
     wait_user
 
     umount "$MOUNT_POINT"
-    FINAL_START=$(echo "debugfs -R 'logdump -s' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | grep "Journal starts" | awk '{print $NF}')
+    FINAL_START=$(./debugfs/debugfs -R "logdump -s" "$IMG_FILE" 2>/dev/null | grep "Journal starts" | awk '{print $NF}')
 
     echo -e "${CYAN}Final journal start block: $FINAL_START${NC}"
 
@@ -434,7 +434,7 @@ scenario_fast_commit() {
 
     info "Analyzing journal for fast commit blocks..."
     echo
-    echo "debugfs -R 'logdump -a' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | grep -i -A 3 "fast\|fc_block"
+    ./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null | grep -i -A 3 "fast\|fc_block"
 
     wait_user
     mount "$LOOP_DEV" "$MOUNT_POINT"
