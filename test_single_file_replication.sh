@@ -32,13 +32,13 @@ cd /tmp/test_repl
 
 echo -e "${YELLOW}Step 1: Create filesystem${NC}"
 dd if=/dev/zero of=test.img bs=1M count=50 2>/dev/null
-../misc/mke2fs -t ext4 -F test.img >/dev/null 2>&1
+./misc/mke2fs -t ext4 -F test.img >/dev/null 2>&1
 echo -e "${GREEN}✓${NC} Filesystem created"
 echo ""
 
 echo -e "${YELLOW}Step 2: Check initial journal state${NC}"
 echo "  Journal before mounting:"
-../debugfs/debugfs -R "logdump -a" test.img 2>/dev/null | head -3
+./debugfs/debugfs -R "logdump -a" test.img 2>/dev/null | head -3
 echo ""
 
 echo -e "${YELLOW}Step 3: Mount with data=journal,commit=9999${NC}"
@@ -56,31 +56,31 @@ echo ""
 
 echo -e "${YELLOW}Step 5: Check journal IMMEDIATELY (0 seconds)${NC}"
 echo "  Journal state (t=0s):"
-../debugfs/debugfs -R "logdump -a" test.img 2>/dev/null | head -10
+./debugfs/debugfs -R "logdump -a" test.img 2>/dev/null | head -10
 echo ""
 
 echo -e "${YELLOW}Step 6: Wait 1 second, check again${NC}"
 sleep 1
 echo "  Journal state (t=1s):"
-../debugfs/debugfs -R "logdump -a" test.img 2>/dev/null | head -10
+./debugfs/debugfs -R "logdump -a" test.img 2>/dev/null | head -10
 echo ""
 
 echo -e "${YELLOW}Step 7: Wait 2 more seconds, check again${NC}"
 sleep 2
 echo "  Journal state (t=3s total):"
-../debugfs/debugfs -R "logdump -a" test.img 2>/dev/null | head -10
+./debugfs/debugfs -R "logdump -a" test.img 2>/dev/null | head -10
 echo ""
 
 echo -e "${YELLOW}Step 8: Check journal sequence number${NC}"
-SEQ=$(../misc/dumpe2fs test.img 2>/dev/null | grep "Journal sequence:" | awk '{print $3}')
-START=$(../misc/dumpe2fs test.img 2>/dev/null | grep "Journal start:" | awk '{print $3}')
+SEQ=$(./misc/dumpe2fs test.img 2>/dev/null | grep "Journal sequence:" | awk '{print $3}')
+START=$(./misc/dumpe2fs test.img 2>/dev/null | grep "Journal start:" | awk '{print $3}')
 echo "  Sequence: $SEQ"
 echo "  Start: $START"
 echo "  (Start=0 means journal is empty/checkpointed)"
 echo ""
 
 echo -e "${YELLOW}Step 9: Try capturing with our script${NC}"
-../journal_replicate_capture.sh test.img capture_test > capture.log 2>&1
+./journal_replicate_capture.sh test.img capture_test > capture.log 2>&1
 grep "Transactions found" capture.log || echo "  No transaction info found"
 grep "WARNING" capture.log || echo "  No warnings"
 echo ""

@@ -41,7 +41,7 @@ echo ""
 
 echo -e "${CYAN}[1/3] Creating server1 filesystem${NC}"
 dd if=/dev/zero of=server1.img bs=1M count=100 2>/dev/null
-../misc/mke2fs -t ext4 -F server1.img >/dev/null 2>&1
+./misc/mke2fs -t ext4 -F server1.img >/dev/null 2>&1
 echo -e "${GREEN}✓${NC} server1.img created (100MB)"
 
 echo -e "${CYAN}[2/3] Creating identical server2 filesystem${NC}"
@@ -75,8 +75,8 @@ echo -e "${GREEN}✓${NC} file1.txt created at timestamp: $CREATE_TIME"
 ls -la /tmp/test_mnt_s1/file1.txt
 
 echo -e "${CYAN}[3/3] Checking journal state immediately${NC}"
-SEQ_BEFORE=$(../misc/dumpe2fs server1.img 2>/dev/null | grep "^Journal sequence:" | awk '{print $3}')
-START_BEFORE=$(../misc/dumpe2fs server1.img 2>/dev/null | grep "^Journal start:" | awk '{print $3}')
+SEQ_BEFORE=$(./misc/dumpe2fs server1.img 2>/dev/null | grep "^Journal sequence:" | awk '{print $3}')
+START_BEFORE=$(./misc/dumpe2fs server1.img 2>/dev/null | grep "^Journal start:" | awk '{print $3}')
 echo "  Sequence: $SEQ_BEFORE"
 echo "  Start: $START_BEFORE"
 if [ "$START_BEFORE" = "0" ]; then
@@ -90,7 +90,7 @@ echo -e "${BOLD}${YELLOW}PHASE 3: CAPTURE WITH DIRECT METHOD${NC}"
 echo ""
 
 echo -e "${CYAN}[1/2] Using direct capture (dd with iflag=direct)${NC}"
-../journal_capture_direct.sh server1.img capture_direct 2>&1 | grep -E "✓|⚠|ERROR|Sequence|Start|Captured" | sed 's/^/  /'
+./journal_capture_direct.sh server1.img capture_direct 2>&1 | grep -E "✓|⚠|ERROR|Sequence|Start|Captured" | sed 's/^/  /'
 
 echo -e "${CYAN}[2/2] Verifying capture contains data${NC}"
 if [ -f capture_direct/journal_blocks.raw ]; then
@@ -122,8 +122,8 @@ echo ""
 
 echo -e "${CYAN}[1/1] Wait 2 seconds and check if journal persists${NC}"
 sleep 2
-SEQ_AFTER=$(../misc/dumpe2fs server1.img 2>/dev/null | grep "^Journal sequence:" | awk '{print $3}')
-START_AFTER=$(../misc/dumpe2fs server1.img 2>/dev/null | grep "^Journal start:" | awk '{print $3}')
+SEQ_AFTER=$(./misc/dumpe2fs server1.img 2>/dev/null | grep "^Journal sequence:" | awk '{print $3}')
+START_AFTER=$(./misc/dumpe2fs server1.img 2>/dev/null | grep "^Journal start:" | awk '{print $3}')
 echo "  Sequence: $SEQ_BEFORE → $SEQ_AFTER"
 echo "  Start: $START_BEFORE → $START_AFTER"
 
@@ -167,7 +167,7 @@ if [ -f capture_direct/capture_metadata.txt ]; then
 
     if [ "$JOURNAL_START" != "0" ]; then
         echo "  Using traditional injection (captured active journal)"
-        ../journal_replicate_inject.sh server2.img capture_direct 2>&1 | grep -E "✓|⚠|ERROR" | sed 's/^/  /'
+        ./journal_replicate_inject.sh server2.img capture_direct 2>&1 | grep -E "✓|⚠|ERROR" | sed 's/^/  /'
     else
         echo -e "  ${YELLOW}⚠ Skipping injection - journal was empty${NC}"
     fi
@@ -176,7 +176,7 @@ else
 fi
 
 echo -e "${CYAN}[3/3] Running e2fsck to replay journal${NC}"
-../e2fsck/e2fsck -fy server2.img 2>&1 | head -5 | sed 's/^/  /'
+./e2fsck/e2fsck -fy server2.img 2>&1 | head -5 | sed 's/^/  /'
 echo ""
 
 echo -e "${BOLD}${YELLOW}PHASE 7: VERIFY REPLICATION${NC}"
