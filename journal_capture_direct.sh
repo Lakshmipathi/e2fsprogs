@@ -12,6 +12,12 @@
 
 set -e
 
+# Detect e2fsprogs directory if not set
+if [ -z "$E2FSPROGS_DIR" ]; then
+    # Assume script is in e2fsprogs root
+    E2FSPROGS_DIR="$(cd "$(dirname "$0")" && pwd)"
+fi
+
 if [ $# -lt 2 ]; then
     echo "Usage: $0 <source_img> <output_dir>"
     echo ""
@@ -45,14 +51,14 @@ echo "filesystem cache operations that might trigger checkpointing."
 echo ""
 
 echo "[1/6] Reading filesystem superblock"
-./misc/dumpe2fs "$SOURCE_IMG" 2>/dev/null > "$OUTPUT_DIR/00_filesystem_info.txt"
+$E2FSPROGS_DIR/misc/dumpe2fs "$SOURCE_IMG" 2>/dev/null > "$OUTPUT_DIR/00_filesystem_info.txt"
 
 BLOCK_SIZE=$(grep "^Block size:" "$OUTPUT_DIR/00_filesystem_info.txt" | awk '{print $3}')
 echo "  Block size: $BLOCK_SIZE"
 echo ""
 
 echo "[2/6] Finding journal location"
-./misc/dumpe2fs "$SOURCE_IMG" 2>/dev/null | grep -A 30 "^Journal" > "$OUTPUT_DIR/01_journal_info.txt"
+$E2FSPROGS_DIR/misc/dumpe2fs "$SOURCE_IMG" 2>/dev/null | grep -A 30 "^Journal" > "$OUTPUT_DIR/01_journal_info.txt"
 
 JOURNAL_INODE=$(grep "^Journal inode:" "$OUTPUT_DIR/01_journal_info.txt" | awk '{print $3}')
 JOURNAL_BLOCKS=$(grep "^Journal blocks:" "$OUTPUT_DIR/01_journal_info.txt" | awk '{print $3}')
@@ -75,7 +81,7 @@ echo ""
 
 echo "[3/6] Getting journal block locations"
 # Get the actual block numbers where journal data lives
-./debugfs/debugfs -R "stat <$JOURNAL_INODE>" "$SOURCE_IMG" 2>/dev/null > "$OUTPUT_DIR/02_journal_inode.txt"
+$E2FSPROGS_DIR/debugfs/debugfs -R "stat <$JOURNAL_INODE>" "$SOURCE_IMG" 2>/dev/null > "$OUTPUT_DIR/02_journal_inode.txt"
 
 # Extract blocks - handle EXTENTS format
 FIRST_BLOCK=$(grep -E "(BLOCKS:|EXTENTS:)" "$OUTPUT_DIR/02_journal_inode.txt" -A 5 | \
@@ -137,8 +143,8 @@ echo ""
 
 echo "[6/6] Checking journal state AFTER direct read"
 # Check if journal is still intact after our direct read
-SEQ_AFTER=$(./misc/dumpe2fs "$SOURCE_IMG" 2>/dev/null | grep "^Journal sequence:" | awk '{print $3}')
-START_AFTER=$(./misc/dumpe2fs "$SOURCE_IMG" 2>/dev/null | grep "^Journal start:" | awk '{print $3}')
+SEQ_AFTER=$($E2FSPROGS_DIR/misc/dumpe2fs "$SOURCE_IMG" 2>/dev/null | grep "^Journal sequence:" | awk '{print $3}')
+START_AFTER=$($E2FSPROGS_DIR/misc/dumpe2fs "$SOURCE_IMG" 2>/dev/null | grep "^Journal start:" | awk '{print $3}')
 
 echo "  Sequence (before → after): $JOURNAL_SEQ → $SEQ_AFTER"
 echo "  Start (before → after): $JOURNAL_START → $START_AFTER"

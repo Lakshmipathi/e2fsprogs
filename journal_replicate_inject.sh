@@ -10,6 +10,12 @@
 
 set -e
 
+# Detect e2fsprogs directory if not set
+if [ -z "$E2FSPROGS_DIR" ]; then
+    # Assume script is in e2fsprogs root
+    E2FSPROGS_DIR="$(cd "$(dirname "$0")" && pwd)"
+fi
+
 if [ $# -ne 2 ]; then
     echo "Usage: $0 <replica_fs.img> <capture_dir>"
     echo ""
@@ -58,7 +64,7 @@ echo ""
 # Verify replica is compatible
 echo "[2/5] Verifying replica compatibility..."
 REPLICA_INFO=$(mktemp)
-./misc/dumpe2fs "$REPLICA_IMG" 2>/dev/null > "$REPLICA_INFO"
+$E2FSPROGS_DIR/misc/dumpe2fs "$REPLICA_IMG" 2>/dev/null > "$REPLICA_INFO"
 
 REPLICA_BLOCK_SIZE=$(grep "Block size:" "$REPLICA_INFO" | awk '{print $3}')
 REPLICA_INODE_SIZE=$(grep "Inode size:" "$REPLICA_INFO" | awk '{print $3}')
@@ -85,7 +91,7 @@ echo ""
 # Get journal location on replica
 echo "[3/5] Locating journal on replica..."
 REPLICA_JOURNAL_INFO=$(mktemp)
-./debugfs/debugfs -R "stat <$JOURNAL_INODE>" "$REPLICA_IMG" 2>/dev/null > "$REPLICA_JOURNAL_INFO"
+$E2FSPROGS_DIR/debugfs/debugfs -R "stat <$JOURNAL_INODE>" "$REPLICA_IMG" 2>/dev/null > "$REPLICA_JOURNAL_INFO"
 
 REPLICA_JOURNAL_EXTENT=$(grep "EXTENTS:" -A 10 "$REPLICA_JOURNAL_INFO" | grep -E "^\(" | head -1)
 REPLICA_FIRST_BLOCK=$(echo "$REPLICA_JOURNAL_EXTENT" | grep -oE '[0-9]+$')
@@ -133,7 +139,7 @@ echo "[5/5] Marking filesystem for journal replay..."
 echo "  Setting 'needs_recovery' feature..."
 
 # Use tune2fs to force a journal check
-./misc/tune2fs -f -C 1 "$REPLICA_IMG" >/dev/null 2>&1 || true
+$E2FSPROGS_DIR/misc/tune2fs -f -C 1 "$REPLICA_IMG" >/dev/null 2>&1 || true
 
 echo "  ✓ Filesystem marked for recovery"
 echo ""
