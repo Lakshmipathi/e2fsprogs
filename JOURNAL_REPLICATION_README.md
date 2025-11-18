@@ -281,28 +281,72 @@ mount -o data=journal,barrier=0,commit=9999 device /mnt
 
 ## Advanced Usage
 
-### Continuous Replication
+### Continuous Replication (Production-Ready)
 
-For continuous replication, you'd need:
+For **live production** replication where server1 must stay running:
 
-1. **Keep filesystem mounted:**
-   ```bash
-   mount -o data=journal,commit=30 ...
-   ```
+#### Use the Continuous Monitor
 
-2. **Periodic capture script:**
-   ```bash
-   while true; do
-     ./journal_replicate_capture.sh fs.img capture_$(date +%s)/
-     # Transfer to server2
-     sleep 30
-   done
-   ```
+```bash
+# Server1: Start continuous monitor (runs in background)
+./journal_replicate_monitor.sh /dev/sdb1 /replication/captures 2 &
 
-3. **Incremental injection:**
-   - Track last applied sequence number
-   - Only apply new transactions
-   - Requires modifying inject script
+# This captures journal every 2 seconds
+# Server1 NEVER blocks - stays live and serving I/O
+```
+
+**How it works:**
+1. Monitors journal sequence number every 2 seconds
+2. Only captures when sequence changes (new transactions)
+3. Saves each capture with timestamp
+4. No freezing, no blocking, server stays live
+
+**Production deployment:**
+```bash
+# Server1: Start monitor as systemd service
+[Unit]
+Description=Journal Replication Monitor
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/journal_replicate_monitor.sh /dev/sdb1 /replication/captures 2
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Server2: Apply captures automatically:**
+```bash
+# Server2: Watch for new captures and apply
+inotifywait -m /replication/captures -e create |
+while read path action file; do
+    if [[ "$file" == capture_* ]]; then
+        ./journal_replicate_inject.sh /dev/sdb1 "/replication/captures/$file"
+        ./e2fsck/e2fsck -fy /dev/sdb1
+    fi
+done
+```
+
+**Key advantages:**
+- ✅ Server1 never stops serving I/O
+- ✅ Near-real-time replication (2-second lag)
+- ✅ Automatic - just runs in background
+- ✅ Incremental - only captures changes
+
+#### Full Continuous Demo
+
+```bash
+# Run the full continuous replication demo
+sudo ./journal_replicate_demo_continuous.sh
+```
+
+This demonstrates:
+- Server1 stays mounted and live
+- Files created continuously
+- Monitor captures each change
+- Changes applied to server2
+- Verification shows identical filesystems
 
 ### Monitoring
 
