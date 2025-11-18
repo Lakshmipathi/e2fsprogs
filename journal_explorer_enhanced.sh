@@ -376,11 +376,12 @@ echo -e "${BOLD}${YELLOW}TRANSACTION ANALYSIS:${NC}\n"
 # Note: grep -c returns 0 and exits with status 1 when no matches, so we need to handle that
 # Match actual logdump format: "type 1 (descriptor block)"
 # Use -F for fixed string matching (parentheses are literal, not regex)
-desc_count=$(grep -Fc "type 1 (descriptor block)" "$JOURNAL_DUMP" 2>/dev/null)
+# Use || true to prevent set -e from terminating the script when grep finds no matches
+desc_count=$(grep -Fc "type 1 (descriptor block)" "$JOURNAL_DUMP" 2>/dev/null || true)
 desc_count=${desc_count:-0}
-commit_count=$(grep -Fc "type 2 (commit block)" "$JOURNAL_DUMP" 2>/dev/null)
+commit_count=$(grep -Fc "type 2 (commit block)" "$JOURNAL_DUMP" 2>/dev/null || true)
 commit_count=${commit_count:-0}
-revoke_count=$(grep -Fc "type 5 (revoke block)" "$JOURNAL_DUMP" 2>/dev/null)
+revoke_count=$(grep -Fc "type 5 (revoke block)" "$JOURNAL_DUMP" 2>/dev/null || true)
 revoke_count=${revoke_count:-0}
 
 # Write to both terminal and file (no tee to avoid ANSI codes in file)
