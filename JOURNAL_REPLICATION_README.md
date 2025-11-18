@@ -110,19 +110,20 @@ echo "hello" > /mnt/abc.txt
 mkdir /mnt/mydir
 echo "test" > /mnt/mydir/file.txt
 
-# Sync to journal (but delay checkpoint)
+# Sync to journal (commit=9999 prevents checkpoint)
 sync
-
-# Unmount
-umount /mnt
-losetup -d $LOOP
 ```
 
 #### Step 3: Capture Journal State
 
 ```bash
-# Server1: Capture journal
+# Server1: Capture journal (filesystem can stay mounted!)
+# The commit=9999 option prevents checkpointing
 ./journal_replicate_capture.sh fs.img capture_output/
+
+# Now unmount cleanly
+umount /mnt
+losetup -d $LOOP
 
 # Transfer to Server2
 tar czf capture.tar.gz capture_output/
@@ -241,10 +242,12 @@ mount -o data=journal,barrier=0,commit=9999 device /mnt
    - Block size, inode size, UUID must match
    - Use `dd` or `cp` to create identical copies
 
-2. **Only Captures Uncommitted Transactions**
-   - Once transaction is checkpointed, it's gone from journal
-   - Need to capture before `commit` timeout expires
-   - Or before clean unmount (which checkpoints everything)
+2. **Must Use Long Commit Timeout** ⚠️ CRITICAL
+   - Mount with `commit=9999` to delay checkpointing
+   - This keeps transactions in journal long enough to capture
+   - Capture BEFORE the commit timeout expires (9999 seconds = ~2.7 hours)
+   - Filesystem can remain mounted during capture
+   - Without this, transactions checkpoint quickly and journal empties
 
 3. **Not a Full Backup Solution**
    - Only replicates incremental changes
