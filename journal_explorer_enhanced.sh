@@ -155,8 +155,10 @@ step "Setting up loop device and mounting"
 LOOP_DEV=$(losetup -f)
 losetup "$LOOP_DEV" "$IMG_FILE"
 mkdir -p "$MOUNT_POINT"
-mount "$LOOP_DEV" "$MOUNT_POINT"
+# Mount with delayed commit to keep transactions in journal longer
+mount -o commit=120 "$LOOP_DEV" "$MOUNT_POINT"
 echo -e "${GREEN}✓ Mounted at: $MOUNT_POINT${NC}"
+echo -e "${BLUE}  (mounted with commit=120 to delay journal checkpointing)${NC}"
 wait_for_user
 
 step "Creating file: abc.txt"
@@ -168,20 +170,19 @@ echo -e "${GREEN}✓ File created with content:${NC}"
 cat "$MOUNT_POINT/abc.txt"
 echo
 
-# Do additional syncs to ensure transaction is committed to journal
-echo -e "${CYAN}Syncing to ensure transaction is in journal...${NC}"
-sync
-sleep 1
-sync
-echo -e "${GREEN}✓ Synced${NC}"
+# Force the write to go through but DON'T checkpoint
+# Using sync on the file descriptor instead of global sync
+echo -e "${CYAN}Flushing file data to journal...${NC}"
+sync -f "$MOUNT_POINT/abc.txt" 2>/dev/null || sync
+echo -e "${GREEN}✓ Data flushed${NC}"
 wait_for_user
 
-step "Getting file inode and block information"
+step "Capturing journal state (before checkpoint)"
 
-# Capture journal BEFORE unmounting (while transactions are in journal)
-# Do this AFTER all file operations are complete
+# Capture journal IMMEDIATELY after file creation, BEFORE checkpointing
+# This is critical - we need to catch the transaction while it's still in the journal
 JOURNAL_DUMP="$OUTPUT_DIR/04_full_journal_dump.txt"
-echo -e "${CYAN}Capturing journal state (while still mounted)...${NC}"
+echo -e "${CYAN}Capturing journal state (while transaction is still in journal)...${NC}"
 ./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null > "$JOURNAL_DUMP"
 echo -e "${GREEN}✓${NC} Journal captured to: $JOURNAL_DUMP"
 echo -e "${CYAN}Preview:${NC}"
@@ -358,9 +359,13 @@ echo >> "$TRANSACTION_ANALYSIS"
 echo -e "${BOLD}${YELLOW}TRANSACTION ANALYSIS:${NC}\n"
 
 # Count block types (capture to variable to avoid newline issues)
-desc_count=$(grep -c "Descriptor block" "$JOURNAL_DUMP" 2>/dev/null || echo "0")
-commit_count=$(grep -c "Commit block" "$JOURNAL_DUMP" 2>/dev/null || echo "0")
-revoke_count=$(grep -c "Revoke block" "$JOURNAL_DUMP" 2>/dev/null || echo "0")
+# Note: grep -c returns 0 and exits with status 1 when no matches, so we need to handle that
+desc_count=$(grep -c "Descriptor block" "$JOURNAL_DUMP" 2>/dev/null)
+desc_count=${desc_count:-0}
+commit_count=$(grep -c "Commit block" "$JOURNAL_DUMP" 2>/dev/null)
+commit_count=${commit_count:-0}
+revoke_count=$(grep -c "Revoke block" "$JOURNAL_DUMP" 2>/dev/null)
+revoke_count=${revoke_count:-0}
 
 # Write to both terminal and file (no tee to avoid ANSI codes in file)
 {
