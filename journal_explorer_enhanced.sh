@@ -171,12 +171,26 @@ echo
 wait_for_user
 
 step "Getting file inode and block information"
+
+# First, dump the journal BEFORE unmounting (while transactions are still in journal)
+JOURNAL_DUMP="$OUTPUT_DIR/04_full_journal_dump.txt"
+echo -e "${CYAN}Capturing journal state before unmount...${NC}"
+# Use debugfs on the loop device to capture journal
+./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null > "$JOURNAL_DUMP"
+echo -e "${GREEN}✓${NC} Journal captured to: $JOURNAL_DUMP"
+echo
+
 umount "$MOUNT_POINT"
 
 FILE_INFO="$OUTPUT_DIR/02_abc_file_info.txt"
 
-# Get inode using debugfs ncheck with -R flag
-INODE=$(./debugfs/debugfs -R "ncheck abc.txt" "$IMG_FILE" 2>/dev/null | grep -v "Inode" | awk '{print $1}' | head -1)
+# Get inode using debugfs ncheck with -R flag - search for file in root
+INODE=$(./debugfs/debugfs -R "ncheck /abc.txt" "$IMG_FILE" 2>/dev/null | grep -v "Inode" | awk '{print $1}' | head -1)
+
+# If not found with /, try without
+if [ -z "$INODE" ] || [ "$INODE" = "debugfs:" ]; then
+    INODE=$(./debugfs/debugfs -R "ls -l" "$IMG_FILE" 2>/dev/null | grep "abc.txt" | awk '{print $1}')
+fi
 
 echo -e "${CYAN}File information:${NC}"
 if [ -n "$INODE" ] && [ "$INODE" != "debugfs:" ]; then
@@ -248,11 +262,11 @@ echo
 
 wait_for_user
 
-step "Dumping full journal to trace transactions"
-JOURNAL_DUMP="$OUTPUT_DIR/04_full_journal_dump.txt"
-./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null | tee "$JOURNAL_DUMP"
+step "Reviewing captured journal dump"
+echo -e "${CYAN}Journal dump preview (first 30 lines):${NC}"
+head -30 "$JOURNAL_DUMP"
 echo
-echo -e "${GREEN}✓${NC} Saved to: $JOURNAL_DUMP"
+echo -e "${GREEN}✓${NC} Full journal saved to: $JOURNAL_DUMP"
 wait_for_user
 
 # ============================================================================
@@ -266,7 +280,9 @@ info_box "Looking for blocks $BLOCKS in journal transactions"
 echo
 
 BLOCK_TRACE="$OUTPUT_DIR/05_block_trace.txt"
-echo -e "${BOLD}${YELLOW}BLOCK TRACE RESULTS:${NC}\n" | tee "$BLOCK_TRACE"
+echo "BLOCK TRACE RESULTS:" > "$BLOCK_TRACE"
+echo >> "$BLOCK_TRACE"
+echo -e "${BOLD}${YELLOW}BLOCK TRACE RESULTS:${NC}\n"
 
 found_any=0
 current_trans=""
@@ -280,23 +296,37 @@ if [ -n "$BLOCKS" ]; then
         for block in $BLOCKS; do
             if echo "$line" | grep -qE "\\b$block\\b"; then
                 if [ "$found_any" = "0" ]; then
-                    echo -e "${GREEN}✓ Found file blocks in journal!${NC}\n" | tee -a "$BLOCK_TRACE"
+                    echo "✓ Found file blocks in journal!" >> "$BLOCK_TRACE"
+                    echo >> "$BLOCK_TRACE"
+                    echo -e "${GREEN}✓ Found file blocks in journal!${NC}\n"
                     found_any=1
                 fi
-                echo -e "${MAGENTA}Transaction $current_trans:${NC}" | tee -a "$BLOCK_TRACE"
-                echo -e "  ${CYAN}Block $block:${NC} $line" | tee -a "$BLOCK_TRACE"
-                echo | tee -a "$BLOCK_TRACE"
+                echo "Transaction $current_trans:" >> "$BLOCK_TRACE"
+                echo "  Block $block: $line" >> "$BLOCK_TRACE"
+                echo >> "$BLOCK_TRACE"
+
+                echo -e "${MAGENTA}Transaction $current_trans:${NC}"
+                echo -e "  ${CYAN}Block $block:${NC} $line"
+                echo
             fi
         done
     done < "$JOURNAL_DUMP"
 fi
 
 if [ "$found_any" = "0" ]; then
-    echo -e "${YELLOW}No direct block references found in journal.${NC}" | tee -a "$BLOCK_TRACE"
-    echo -e "${BLUE}Possible reasons:${NC}" | tee -a "$BLOCK_TRACE"
-    echo -e "  • File uses inline data (stored in inode)${NC}" | tee -a "$BLOCK_TRACE"
-    echo -e "  • Transaction already checkpointed${NC}" | tee -a "$BLOCK_TRACE"
-    echo -e "  • Journal wrapped around${NC}" | tee -a "$BLOCK_TRACE"
+    {
+        echo "No direct block references found in journal."
+        echo "Possible reasons:"
+        echo "  • File uses inline data (stored in inode)"
+        echo "  • Transaction already checkpointed"
+        echo "  • Journal wrapped around"
+    } >> "$BLOCK_TRACE"
+
+    echo -e "${YELLOW}No direct block references found in journal.${NC}"
+    echo -e "${BLUE}Possible reasons:${NC}"
+    echo -e "  • File uses inline data (stored in inode)${NC}"
+    echo -e "  • Transaction already checkpointed${NC}"
+    echo -e "  • Journal wrapped around${NC}"
 fi
 
 echo
@@ -314,30 +344,61 @@ TRANSACTION_ANALYSIS="$OUTPUT_DIR/06_transaction_analysis.txt"
 
 echo -e "${BOLD}${YELLOW}TRANSACTION ANALYSIS:${NC}\n" | tee "$TRANSACTION_ANALYSIS"
 
+# Count block types (capture to variable to avoid newline issues)
 desc_count=$(grep -c "Descriptor block" "$JOURNAL_DUMP" 2>/dev/null || echo "0")
 commit_count=$(grep -c "Commit block" "$JOURNAL_DUMP" 2>/dev/null || echo "0")
 revoke_count=$(grep -c "Revoke block" "$JOURNAL_DUMP" 2>/dev/null || echo "0")
 
-echo -e "${CYAN}Block Type Counts:${NC}" | tee -a "$TRANSACTION_ANALYSIS"
-echo -e "  Descriptor blocks: ${BOLD}$desc_count${NC}" | tee -a "$TRANSACTION_ANALYSIS"
-echo -e "    ${BLUE}→ Define what filesystem blocks are being modified${NC}" | tee -a "$TRANSACTION_ANALYSIS"
-echo -e "  Commit blocks: ${BOLD}$commit_count${NC}" | tee -a "$TRANSACTION_ANALYSIS"
-echo -e "    ${BLUE}→ Mark transactions as complete (atomic commit point)${NC}" | tee -a "$TRANSACTION_ANALYSIS"
-echo -e "  Revoke blocks: ${BOLD}$revoke_count${NC}" | tee -a "$TRANSACTION_ANALYSIS"
-echo -e "    ${BLUE}→ List blocks that should NOT be replayed (deletions)${NC}" | tee -a "$TRANSACTION_ANALYSIS"
-echo | tee -a "$TRANSACTION_ANALYSIS"
+# Write to both terminal and file (no tee to avoid ANSI codes in file)
+{
+    echo "Block Type Counts:"
+    echo "  Descriptor blocks: $desc_count"
+    echo "    → Define what filesystem blocks are being modified"
+    echo "  Commit blocks: $commit_count"
+    echo "    → Mark transactions as complete (atomic commit point)"
+    echo "  Revoke blocks: $revoke_count"
+    echo "    → List blocks that should NOT be replayed (deletions)"
+    echo
+} >> "$TRANSACTION_ANALYSIS"
 
-echo -e "${CYAN}Transaction Sequences:${NC}" | tee -a "$TRANSACTION_ANALYSIS"
+# Display with colors on terminal
+echo -e "${CYAN}Block Type Counts:${NC}"
+echo -e "  Descriptor blocks: ${BOLD}$desc_count${NC}"
+echo -e "    ${BLUE}→ Define what filesystem blocks are being modified${NC}"
+echo -e "  Commit blocks: ${BOLD}$commit_count${NC}"
+echo -e "    ${BLUE}→ Mark transactions as complete (atomic commit point)${NC}"
+echo -e "  Revoke blocks: ${BOLD}$revoke_count${NC}"
+echo -e "    ${BLUE}→ List blocks that should NOT be replayed (deletions)${NC}"
+echo
+
+# Transaction sequences - write to file without colors
+{
+    echo "Transaction Sequences:"
+    grep "Found expected sequence" "$JOURNAL_DUMP" 2>/dev/null | while read -r line; do
+        seq=$(echo "$line" | awk '{print $4}' | tr -d ',')
+        echo "  Transaction ID: $seq"
+    done | head -5
+    echo
+} >> "$TRANSACTION_ANALYSIS"
+
+# Display with colors
+echo -e "${CYAN}Transaction Sequences:${NC}"
 grep "Found expected sequence" "$JOURNAL_DUMP" 2>/dev/null | while read -r line; do
     seq=$(echo "$line" | awk '{print $4}' | tr -d ',')
-    echo -e "  Transaction ID: ${BOLD}$seq${NC}" | tee -a "$TRANSACTION_ANALYSIS"
+    echo -e "  Transaction ID: ${BOLD}$seq${NC}"
 done | head -5
-echo | tee -a "$TRANSACTION_ANALYSIS"
+echo
 
 if [ "$desc_count" -gt 0 ]; then
-    echo -e "${CYAN}First Descriptor Block:${NC}" | tee -a "$TRANSACTION_ANALYSIS"
-    grep -A 10 "Descriptor block" "$JOURNAL_DUMP" 2>/dev/null | head -12 | tee -a "$TRANSACTION_ANALYSIS"
-    echo | tee -a "$TRANSACTION_ANALYSIS"
+    {
+        echo "First Descriptor Block:"
+        grep -A 10 "Descriptor block" "$JOURNAL_DUMP" 2>/dev/null | head -12
+        echo
+    } >> "$TRANSACTION_ANALYSIS"
+
+    echo -e "${CYAN}First Descriptor Block:${NC}"
+    grep -A 10 "Descriptor block" "$JOURNAL_DUMP" 2>/dev/null | head -12
+    echo
 fi
 
 echo -e "${GREEN}✓${NC} Analysis saved to: $TRANSACTION_ANALYSIS"
