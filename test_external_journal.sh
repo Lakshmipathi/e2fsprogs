@@ -92,10 +92,17 @@ echo ""
 
 echo -e "${CYAN}[3/5] Creating file1.txt${NC}"
 echo "Hello from external journal test - file1.txt content" > /tmp/test_ext_journal/file1.txt
-echo -e "${GREEN}✓${NC} file1.txt created"
+sync  # Flush to journal
+echo -e "${GREEN}✓${NC} file1.txt created and synced"
 echo ""
 
-echo -e "${CYAN}[4/5] Check journal state AFTER file creation (immediate)${NC}"
+echo -e "${CYAN}[4/5] UNMOUNT and check journal (key step!)${NC}"
+echo "  Unmounting filesystem (like journal_explorer_enhanced.sh does)..."
+umount /tmp/test_ext_journal
+echo -e "${GREEN}✓${NC} Unmounted"
+echo ""
+
+echo -e "${CYAN}Check journal state AFTER file creation${NC}"
 JOURNAL_HASH_AFTER=$(md5sum journal.img | awk '{print $1}')
 JOURNAL_SIZE_AFTER=$(stat -c %s journal.img)
 echo "  Journal MD5: ${JOURNAL_HASH_AFTER:0:16}..."
@@ -112,8 +119,12 @@ LOGDUMP_AFTER=$($E2FSPROGS_DIR/debugfs/debugfs -R "logdump -a" /dev/loop31 2>/de
 echo "$LOGDUMP_AFTER" | sed 's/^/    /'
 
 # Count transactions in journal
-DESC_COUNT=$(echo "$LOGDUMP_AFTER" | grep -c "type 1 (descriptor block)" || echo "0")
-COMMIT_COUNT=$(echo "$LOGDUMP_AFTER" | grep -c "type 2 (commit block)" || echo "0")
+DESC_COUNT=$(echo "$LOGDUMP_AFTER" | grep -Fc "type 1 (descriptor block)" 2>/dev/null || echo "0")
+DESC_COUNT=${DESC_COUNT//
+/}  # Remove newlines
+COMMIT_COUNT=$(echo "$LOGDUMP_AFTER" | grep -Fc "type 2 (commit block)" 2>/dev/null || echo "0")
+COMMIT_COUNT=${COMMIT_COUNT//
+/}  # Remove newlines
 echo "  Descriptor blocks: $DESC_COUNT"
 echo "  Commit blocks: $COMMIT_COUNT"
 
@@ -124,22 +135,16 @@ else
 fi
 echo ""
 
-echo -e "${CYAN}[5/5] Wait 2 seconds and check persistence${NC}"
-sleep 2
-JOURNAL_HASH_2S=$(md5sum journal.img | awk '{print $1}')
-echo "  Journal MD5: ${JOURNAL_HASH_2S:0:16}..."
-
-LOGDUMP_2S=$($E2FSPROGS_DIR/debugfs/debugfs -R "logdump -a" /dev/loop31 2>/dev/null | head -10)
-DESC_COUNT_2S=$(echo "$LOGDUMP_2S" | grep -c "type 1 (descriptor block)" || echo "0")
-COMMIT_COUNT_2S=$(echo "$LOGDUMP_2S" | grep -c "type 2 (commit block)" || echo "0")
-
-echo "  Descriptor blocks: $DESC_COUNT → $DESC_COUNT_2S"
-echo "  Commit blocks: $COMMIT_COUNT → $COMMIT_COUNT_2S"
-
-if [ "$DESC_COUNT_2S" -gt 0 ] || [ "$COMMIT_COUNT_2S" -gt 0 ]; then
-    echo -e "  ${GREEN}✓✓✓ Journal PERSISTS after 2 seconds!${NC}"
+echo -e "${CYAN}[5/5] Verify journal was captured${NC}"
+if [ "$DESC_COUNT" -gt 0 ] || [ "$COMMIT_COUNT" -gt 0 ]; then
+    echo -e "  ${GREEN}✓✓✓ Journal has transactions after unmount!${NC}"
+    echo "  This proves external journal works for replication"
 else
-    echo -e "  ${RED}⚠ Journal cleared within 2 seconds${NC}"
+    echo -e "  ${YELLOW}⚠ Journal empty after unmount${NC}"
+    echo "  Possible issues:"
+    echo "    - sync triggered checkpoint"
+    echo "    - data=journal not working with external journal"
+    echo "    - Need to read journal.img file instead of /dev/loop31"
 fi
 echo ""
 
@@ -167,12 +172,12 @@ if command -v xxd > /dev/null; then
 fi
 echo ""
 
-echo -e "${BOLD}${YELLOW}PHASE 5: CLEANUP AND ANALYSIS${NC}"
+echo -e "${BOLD}${YELLOW}PHASE 5: CLEANUP${NC}"
 echo ""
 
-umount /tmp/test_ext_journal
-losetup -d /dev/loop30
-losetup -d /dev/loop31
+# Already unmounted in Phase 3
+losetup -d /dev/loop30 2>/dev/null || true
+losetup -d /dev/loop31 2>/dev/null || true
 
 echo -e "${BOLD}${CYAN}===================================================================="
 echo "RESULTS"
