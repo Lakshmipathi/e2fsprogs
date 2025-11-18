@@ -74,7 +74,7 @@ show_structure() {
     echo -e "${CYAN}│${NC}"
     while IFS= read -r line; do
         echo -e "${CYAN}│${NC} $line"
-    done <<< "$1"
+    done
     echo -e "${CYAN}└────────────────────────────────────────────────────────────┘${NC}"
 }
 
@@ -169,7 +169,7 @@ step "Dumping actual journal superblock"
 info_box "Using debugfs logdump to show journal superblock"
 echo
 echo -e "${YELLOW}Debugfs command: logdump -s${NC}"
-echo "debugfs -R 'logdump -s' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null
+./debugfs/debugfs -R "logdump -s" "$IMG_FILE" 2>/dev/null
 wait_for_user
 
 # ============================================================================
@@ -255,7 +255,7 @@ step "Examining journal after first write"
 echo -e "${YELLOW}Full journal dump (first few transactions):${NC}"
 echo
 umount "$MOUNT_POINT"
-echo "debugfs -R 'logdump -n 2' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | head -100
+./debugfs/debugfs -R "logdump -n 2" "$IMG_FILE" 2>/dev/null | head -100
 wait_for_user
 
 step "Understanding what just happened"
@@ -292,13 +292,13 @@ step "Viewing journal with multiple transactions"
 umount "$MOUNT_POINT"
 echo -e "${YELLOW}Showing all transactions (-n 10):${NC}"
 echo
-echo "debugfs -R 'logdump -n 10' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | head -200
+./debugfs/debugfs -R "logdump -n 10" "$IMG_FILE" 2>/dev/null | head -200
 wait_for_user
 
 step "Counting transactions and blocks"
 echo -e "${CYAN}Transaction statistics:${NC}"
 echo
-JOURNAL_OUTPUT=$(echo "debugfs -R 'logdump -a' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null)
+JOURNAL_OUTPUT=$(./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null)
 echo "$JOURNAL_OUTPUT" | grep -c "^Journal starts at block" || echo "Journal entries found"
 echo
 echo -e "${CYAN}Descriptor blocks:${NC}"
@@ -369,7 +369,7 @@ wait_for_user
 step "Examining journal state after crash"
 echo -e "${CYAN}Journal superblock shows uncommitted transactions:${NC}"
 echo
-echo "debugfs -R 'logdump -s' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null
+./debugfs/debugfs -R "logdump -s" "$IMG_FILE" 2>/dev/null
 wait_for_user
 
 step "Running recovery (e2fsck)"
@@ -442,7 +442,7 @@ step "Looking for revoke blocks in journal"
 umount "$MOUNT_POINT"
 echo -e "${CYAN}Searching for revoke blocks:${NC}"
 echo
-echo "debugfs -R 'logdump -a' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null | grep -A 5 -i "revoke"
+./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null | grep -A 5 -i "revoke"
 wait_for_user
 
 # ============================================================================
@@ -494,7 +494,7 @@ wait_for_user
 step "Examining journal space usage"
 echo -e "${CYAN}Journal superblock after many transactions:${NC}"
 echo
-echo "debugfs -R 'logdump -s' $IMG_FILE" | ./debugfs/debugfs "$IMG_FILE" 2>/dev/null
+./debugfs/debugfs -R "logdump -s" "$IMG_FILE" 2>/dev/null
 echo
 info_box "Note s_start field - shows where oldest transaction begins"
 wait_for_user

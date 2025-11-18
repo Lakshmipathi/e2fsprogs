@@ -122,7 +122,7 @@ echo "stat <$JOURNAL_INODE>" | ./debugfs/debugfs "$IMG" 2>/dev/null
 
 echo
 echo -e "${CYAN}Journal superblock (using logdump):${NC}"
-echo "debugfs -R 'logdump -s' $IMG" | ./debugfs/debugfs "$IMG" 2>/dev/null
+./debugfs/debugfs -R "logdump -s" "$IMG" 2>/dev/null
 
 # ============================================================================
 # TRANSACTION DUMP
@@ -132,7 +132,7 @@ section "TRANSACTION ANALYSIS"
 
 echo -e "${BOLD}Dumping first 3 transactions in detail...${NC}\n"
 
-echo "debugfs -R 'logdump -n 3' $IMG" | ./debugfs/debugfs "$IMG" 2>/dev/null
+./debugfs/debugfs -R "logdump -n 3" "$IMG" 2>/dev/null
 
 echo
 read -p "Press ENTER to see full journal dump..."
@@ -140,7 +140,7 @@ echo
 
 section "FULL JOURNAL DUMP"
 
-echo "debugfs -R 'logdump -a' $IMG" | ./debugfs/debugfs "$IMG" 2>/dev/null
+./debugfs/debugfs -R "logdump -a" "$IMG" 2>/dev/null
 
 # ============================================================================
 # BLOCK TAG ANALYSIS
@@ -226,7 +226,7 @@ EOF
 echo
 echo -e "${CYAN}Searching for revoke blocks in journal:${NC}"
 echo
-echo "debugfs -R 'logdump -a' $IMG" | ./debugfs/debugfs "$IMG" 2>/dev/null | grep -i -A 10 "revoke"
+./debugfs/debugfs -R "logdump -a" "$IMG" 2>/dev/null | grep -i -A 10 "revoke"
 
 echo
 read -p "Press ENTER to continue..."
@@ -275,7 +275,7 @@ EOF
 echo
 echo -e "${CYAN}Example commit blocks from journal:${NC}"
 echo
-echo "debugfs -R 'logdump -a' $IMG" | ./debugfs/debugfs "$IMG" 2>/dev/null | grep -i -A 5 "commit block"
+./debugfs/debugfs -R "logdump -a" "$IMG" 2>/dev/null | grep -i -A 5 "commit block"
 
 echo
 read -p "Press ENTER to continue..."
@@ -398,30 +398,30 @@ while true; do
     case $choice in
         1)
             echo
-            echo "debugfs -R 'logdump -s' $IMG" | ./debugfs/debugfs "$IMG" 2>/dev/null
+            ./debugfs/debugfs -R "logdump -s" "$IMG" 2>/dev/null
             ;;
         2)
             echo
-            echo "debugfs -R 'logdump -a' $IMG" | ./debugfs/debugfs "$IMG" 2>/dev/null | less
+            ./debugfs/debugfs -R "logdump -a" "$IMG" 2>/dev/null | less
             ;;
         3)
             read -p "Enter number of transactions: " num
             echo
-            echo "debugfs -R 'logdump -n $num' $IMG" | ./debugfs/debugfs "$IMG" 2>/dev/null
+            ./debugfs/debugfs -R "logdump -n $num" "$IMG" 2>/dev/null
             ;;
         4)
             echo
-            echo "debugfs -R 'logdump -a' $IMG" | ./debugfs/debugfs "$IMG" 2>/dev/null | grep -i -B 2 -A 10 "revoke"
+            ./debugfs/debugfs -R "logdump -a" "$IMG" 2>/dev/null | grep -i -B 2 -A 10 "revoke"
             ;;
         5)
             echo
-            echo "debugfs -R 'logdump -a' $IMG" | ./debugfs/debugfs "$IMG" 2>/dev/null | grep -i -A 5 "commit block"
+            ./debugfs/debugfs -R "logdump -a" "$IMG" 2>/dev/null | grep -i -A 5 "commit block"
             ;;
         6)
             echo
             ./misc/dumpe2fs "$IMG" 2>/dev/null | grep -A 30 "^Journal"
             echo
-            LOGDUMP=$(echo "debugfs -R 'logdump -a' $IMG" | ./debugfs/debugfs "$IMG" 2>/dev/null)
+            LOGDUMP=$(./debugfs/debugfs -R "logdump -a" "$IMG" 2>/dev/null)
             echo -e "${CYAN}Transaction count:${NC}"
             echo "$LOGDUMP" | grep -c "Found expected sequence" || echo "0"
             echo -e "${CYAN}Descriptor blocks:${NC}"
