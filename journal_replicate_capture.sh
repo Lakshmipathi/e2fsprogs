@@ -78,6 +78,18 @@ JOURNAL_DUMP="$OUTPUT_DIR/02_journal_dump.txt"
 # Count transactions
 TRANSACTION_COUNT=$(grep -c "Found expected sequence" "$JOURNAL_DUMP" || echo "0")
 echo "  Transactions found: $TRANSACTION_COUNT"
+
+# Check if journal is empty
+if grep -q "No magic number at block 1: end of journal" "$JOURNAL_DUMP"; then
+    echo "  WARNING: Journal appears to be empty (checkpointed)!"
+    echo "  This means all transactions were committed to the filesystem."
+    echo "  For replication to work, you need uncommitted transactions."
+    echo ""
+    echo "  Tips to preserve journal:"
+    echo "    1. Use mount -o commit=9999 (delays checkpoint)"
+    echo "    2. Capture immediately after sync (before checkpoint)"
+    echo "    3. Or don't call sync at all (let commit= timer handle it)"
+fi
 echo ""
 
 # Get journal inode information (to find journal blocks on disk)
