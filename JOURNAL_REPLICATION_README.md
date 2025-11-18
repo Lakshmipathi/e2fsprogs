@@ -110,19 +110,20 @@ echo "hello" > /mnt/abc.txt
 mkdir /mnt/mydir
 echo "test" > /mnt/mydir/file.txt
 
-# IMPORTANT: Don't call sync! It triggers checkpoint and empties journal
-# Instead, let ext4 naturally commit to journal
-sleep 2  # Wait for journal commit
+# Wait for journal commit, then FREEZE to prevent checkpoint
+sleep 2  # Wait for ext4 to commit to journal
+fsfreeze -f /mnt  # Freeze to prevent checkpoint
 ```
 
 #### Step 3: Capture Journal State
 
 ```bash
-# Server1: Capture journal (filesystem can stay mounted!)
-# The commit=9999 delays checkpoint, keeping transactions in journal
+# Server1: Capture journal (while frozen!)
+# Freeze prevents checkpoint, keeping transactions in journal
 ./journal_replicate_capture.sh fs.img capture_output/
 
-# Now unmount cleanly
+# Unfreeze and unmount
+fsfreeze -u /mnt
 umount /mnt
 losetup -d $LOOP
 
