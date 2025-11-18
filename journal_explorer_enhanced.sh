@@ -170,24 +170,26 @@ echo -e "${GREEN}✓ File created with content:${NC}"
 cat "$MOUNT_POINT/abc.txt"
 echo
 
-# Force the write to go through but DON'T checkpoint
-# Using sync on the file descriptor instead of global sync
-echo -e "${CYAN}Flushing file data to journal...${NC}"
-sync -f "$MOUNT_POINT/abc.txt" 2>/dev/null || sync
-echo -e "${GREEN}✓ Data flushed${NC}"
-wait_for_user
+# CRITICAL: Freeze filesystem IMMEDIATELY to prevent checkpoint
+# This stops all I/O including journal commits
+echo -e "${CYAN}Freezing filesystem to capture journal state...${NC}"
+fsfreeze -f "$MOUNT_POINT" 2>/dev/null
+echo -e "${GREEN}✓ Filesystem frozen${NC}"
 
-step "Capturing journal state (before checkpoint)"
-
-# Capture journal IMMEDIATELY after file creation, BEFORE checkpointing
-# This is critical - we need to catch the transaction while it's still in the journal
+# Now capture journal while frozen - transaction MUST still be in journal
 JOURNAL_DUMP="$OUTPUT_DIR/04_full_journal_dump.txt"
-echo -e "${CYAN}Capturing journal state (while transaction is still in journal)...${NC}"
+echo -e "${CYAN}Capturing journal state (filesystem frozen, no checkpointing possible)...${NC}"
 ./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null > "$JOURNAL_DUMP"
 echo -e "${GREEN}✓${NC} Journal captured to: $JOURNAL_DUMP"
-echo -e "${CYAN}Preview:${NC}"
+
+# Unfreeze filesystem
+fsfreeze -u "$MOUNT_POINT" 2>/dev/null
+echo -e "${GREEN}✓ Filesystem unfrozen${NC}"
+
+echo -e "${CYAN}Preview of journal dump:${NC}"
 head -20 "$JOURNAL_DUMP"
 echo
+wait_for_user
 
 umount "$MOUNT_POINT"
 
