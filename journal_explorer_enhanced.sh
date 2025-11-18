@@ -155,40 +155,42 @@ step "Setting up loop device and mounting"
 LOOP_DEV=$(losetup -f)
 losetup "$LOOP_DEV" "$IMG_FILE"
 mkdir -p "$MOUNT_POINT"
-# Mount with delayed commit to keep transactions in journal longer
-mount -o commit=120 "$LOOP_DEV" "$MOUNT_POINT"
+# Mount with data=journal mode - journals ALL data, not just metadata
+# This creates much more journal activity that's easier to capture
+mount -o data=journal,barrier=0,commit=9999 "$LOOP_DEV" "$MOUNT_POINT"
 echo -e "${GREEN}✓ Mounted at: $MOUNT_POINT${NC}"
-echo -e "${BLUE}  (mounted with commit=120 to delay journal checkpointing)${NC}"
+echo -e "${BLUE}  (data=journal mode - all data goes through journal)${NC}"
 wait_for_user
 
-step "Creating file: abc.txt and simulating crash"
-info_box "We'll create a file then immediately 'crash' to preserve journal state"
+step "Creating file: abc.txt"
+info_box "We'll create multiple files to generate persistent journal activity"
 echo
 DATE_OUTPUT=$(date)
+# Create the main file
 echo "$DATE_OUTPUT" > "$MOUNT_POINT/abc.txt"
-echo -e "${GREEN}✓ File created with content:${NC}"
+echo -e "${GREEN}✓ abc.txt created${NC}"
+
+# Create additional files to fill the journal
+for i in {1..5}; do
+    echo "Test file $i with some data: $(date +%s%N)" > "$MOUNT_POINT/test$i.txt"
+done
+echo -e "${GREEN}✓ Created 5 additional test files${NC}"
+
 cat "$MOUNT_POINT/abc.txt"
 echo
 
-# Give kernel a tiny moment to start the transaction
-sleep 0.1
+# Sync to push transactions TO journal (but barrier=0 prevents immediate checkpoint)
+echo -e "${CYAN}Flushing transactions to journal (not checkpointing)...${NC}"
+sync
+echo -e "${GREEN}✓ Transactions in journal${NC}"
+wait_for_user
 
-# CRITICAL: Simulate a crash IMMEDIATELY - DON'T sync!
-# Sync triggers checkpoint which empties the journal
-echo -e "${YELLOW}Simulating filesystem crash (no sync, immediate detach)...${NC}"
-echo -e "${BLUE}  This preserves in-flight journal transactions${NC}"
+step "Capturing journal state"
 
-# Detach loop device forcibly WITHOUT unmounting or syncing
-# This simulates a sudden power loss
-losetup -d "$LOOP_DEV" 2>/dev/null || true
-
-# Force unmount to clean up
-umount -f "$MOUNT_POINT" 2>/dev/null || true
-echo -e "${GREEN}✓ Filesystem 'crashed' - journal should contain uncommitted transaction${NC}"
-
-# Now capture journal - it should have the uncommitted/uncheckpointed transaction
+# Capture journal while filesystem is still mounted
+# In data=journal mode with multiple files, journal should have content
 JOURNAL_DUMP="$OUTPUT_DIR/04_full_journal_dump.txt"
-echo -e "${CYAN}Capturing journal state (should show uncheckpointed transactions)...${NC}"
+echo -e "${CYAN}Capturing journal state (data=journal mode with active transactions)...${NC}"
 ./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null > "$JOURNAL_DUMP"
 echo -e "${GREEN}✓${NC} Journal captured to: $JOURNAL_DUMP"
 
@@ -196,6 +198,12 @@ echo -e "${CYAN}Preview of journal dump:${NC}"
 head -30 "$JOURNAL_DUMP"
 echo
 wait_for_user
+
+# Now unmount cleanly
+echo -e "${CYAN}Unmounting filesystem...${NC}"
+umount "$MOUNT_POINT"
+losetup -d "$LOOP_DEV"
+echo -e "${GREEN}✓ Unmounted${NC}"
 
 FILE_INFO="$OUTPUT_DIR/02_abc_file_info.txt"
 
