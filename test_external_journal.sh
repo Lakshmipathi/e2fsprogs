@@ -85,9 +85,9 @@ JOURNAL_SIZE_BEFORE=$(stat -c %s journal.img)
 echo "  Journal MD5: ${JOURNAL_HASH_BEFORE:0:16}..."
 echo "  Journal size: $JOURNAL_SIZE_BEFORE bytes"
 
-# For external journal, check the journal DEVICE not main FS
-echo "  Journal device logdump (first 10 lines):"
-$E2FSPROGS_DIR/debugfs/debugfs -R "logdump -a" /dev/loop31 2>/dev/null | head -10 | sed 's/^/    /'
+# For external journal, debugfs reads from MAIN FS and finds external journal
+echo "  Main FS logdump (debugfs auto-finds external journal):"
+$E2FSPROGS_DIR/debugfs/debugfs -R "logdump -a" /dev/loop30 2>/dev/null | head -10 | sed 's/^/    /'
 echo ""
 
 echo -e "${CYAN}[3/5] Creating file1.txt${NC}"
@@ -114,8 +114,8 @@ else
     echo -e "  ${YELLOW}⚠ Journal unchanged${NC}"
 fi
 
-echo "  Journal device logdump (first 20 lines):"
-LOGDUMP_AFTER=$($E2FSPROGS_DIR/debugfs/debugfs -R "logdump -a" /dev/loop31 2>/dev/null | head -20)
+echo "  Main FS logdump (first 20 lines):"
+LOGDUMP_AFTER=$($E2FSPROGS_DIR/debugfs/debugfs -R "logdump -a" /dev/loop30 2>/dev/null | head -20)
 echo "$LOGDUMP_AFTER" | sed 's/^/    /'
 
 # Count transactions in journal
