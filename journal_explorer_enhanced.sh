@@ -164,20 +164,28 @@ info_box "We'll create a file and trace its blocks through the journal"
 echo
 DATE_OUTPUT=$(date)
 echo "$DATE_OUTPUT" > "$MOUNT_POINT/abc.txt"
-sync
 echo -e "${GREEN}✓ File created with content:${NC}"
 cat "$MOUNT_POINT/abc.txt"
 echo
+
+# Do additional syncs to ensure transaction is committed to journal
+echo -e "${CYAN}Syncing to ensure transaction is in journal...${NC}"
+sync
+sleep 1
+sync
+echo -e "${GREEN}✓ Synced${NC}"
 wait_for_user
 
 step "Getting file inode and block information"
 
-# First, dump the journal BEFORE unmounting (while transactions are still in journal)
+# Capture journal BEFORE unmounting (while transactions are in journal)
+# Do this AFTER all file operations are complete
 JOURNAL_DUMP="$OUTPUT_DIR/04_full_journal_dump.txt"
-echo -e "${CYAN}Capturing journal state before unmount...${NC}"
-# Use debugfs on the loop device to capture journal
+echo -e "${CYAN}Capturing journal state (while still mounted)...${NC}"
 ./debugfs/debugfs -R "logdump -a" "$IMG_FILE" 2>/dev/null > "$JOURNAL_DUMP"
 echo -e "${GREEN}✓${NC} Journal captured to: $JOURNAL_DUMP"
+echo -e "${CYAN}Preview:${NC}"
+head -20 "$JOURNAL_DUMP"
 echo
 
 umount "$MOUNT_POINT"
@@ -342,7 +350,12 @@ section_header "PHASE 6: TRANSACTION BREAKDOWN"
 step "Analyzing transaction structure"
 TRANSACTION_ANALYSIS="$OUTPUT_DIR/06_transaction_analysis.txt"
 
-echo -e "${BOLD}${YELLOW}TRANSACTION ANALYSIS:${NC}\n" | tee "$TRANSACTION_ANALYSIS"
+# Write header to file without ANSI codes
+echo "TRANSACTION ANALYSIS:" > "$TRANSACTION_ANALYSIS"
+echo >> "$TRANSACTION_ANALYSIS"
+
+# Display colored header on terminal
+echo -e "${BOLD}${YELLOW}TRANSACTION ANALYSIS:${NC}\n"
 
 # Count block types (capture to variable to avoid newline issues)
 desc_count=$(grep -c "Descriptor block" "$JOURNAL_DUMP" 2>/dev/null || echo "0")
