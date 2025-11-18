@@ -90,10 +90,14 @@ echo "  Main FS logdump (debugfs auto-finds external journal):"
 $E2FSPROGS_DIR/debugfs/debugfs -R "logdump -a" /dev/loop30 2>/dev/null | head -10 | sed 's/^/    /'
 echo ""
 
-echo -e "${CYAN}[3/5] Creating file1.txt${NC}"
+echo -e "${CYAN}[3/5] Creating multiple files (like journal_explorer_enhanced)${NC}"
 echo "Hello from external journal test - file1.txt content" > /tmp/test_ext_journal/file1.txt
+# Create more files to generate more journal activity
+for i in {2..6}; do
+    echo "Test file $i - $(date +%s%N)" > /tmp/test_ext_journal/test$i.txt
+done
 sync  # Flush to journal
-echo -e "${GREEN}✓${NC} file1.txt created and synced"
+echo -e "${GREEN}✓${NC} Created 6 files and synced"
 echo ""
 
 echo -e "${CYAN}[4/5] UNMOUNT and check journal (key step!)${NC}"
