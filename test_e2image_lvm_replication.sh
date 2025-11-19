@@ -289,15 +289,17 @@ else
 
     echo -e "${CYAN}[4/7] FREEZING server1 filesystem${NC}"
     echo "  ${YELLOW}WARNING: Writes will block until unfreeze!${NC}"
+    echo "  fsfreeze flushes ALL metadata - creates consistent point-in-time state"
     echo "  Starting timer..."
     FREEZE_START=$(date +%s%N)
     fsfreeze -f /tmp/lvm_s1
     echo -e "${GREEN}✓${NC} Filesystem frozen - all metadata flushed"
 
-    echo -e "${CYAN}[5/7] Running e2image while frozen${NC}"
-    echo "  Command: e2image -ra $DEV1 $DEV2"
+    echo -e "${CYAN}[5/7] Running e2image while frozen (using -f flag)${NC}"
+    echo "  Command: e2image -ra -f $DEV1 $DEV2"
+    echo "  Note: -f flag required because filesystem is mounted (though frozen)"
     umount /tmp/lvm_s2
-    $E2FSPROGS_DIR/misc/e2image -ra $DEV1 $DEV2 2>&1 | tail -2
+    $E2FSPROGS_DIR/misc/e2image -ra -f $DEV1 $DEV2 2>&1 | tail -2
     $E2FSPROGS_DIR/e2fsck/e2fsck -fy $DEV2 >/dev/null 2>&1 || [ $? -le 2 ]
     mount $DEV2 /tmp/lvm_s2
     echo -e "${GREEN}✓${NC} e2image complete"
@@ -406,7 +408,7 @@ else
     FREEZE_START=$(date +%s%N)
     fsfreeze -f /tmp/lvm_s1
     umount /tmp/lvm_s2
-    $E2FSPROGS_DIR/misc/e2image -ra $DEV1 $DEV2 2>&1 | tail -1
+    $E2FSPROGS_DIR/misc/e2image -ra -f $DEV1 $DEV2 2>&1 | tail -1
     $E2FSPROGS_DIR/e2fsck/e2fsck -fy $DEV2 >/dev/null 2>&1 || [ $? -le 2 ]
     mount $DEV2 /tmp/lvm_s2
     fsfreeze -u /tmp/lvm_s1
