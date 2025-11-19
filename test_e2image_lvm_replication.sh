@@ -172,6 +172,17 @@ echo -e "${CYAN}[5/7] Syncing server1 again before e2image${NC}"
 sync
 echo -e "${GREEN}✓${NC} Final sync complete"
 
+echo -e "${CYAN}[5.5/7] DEBUG: Verifying file2.txt exists on server1${NC}"
+echo "  Files on server1:"
+ls -la /tmp/lvm_s1/*.txt 2>/dev/null | sed 's/^/    /'
+if [ -f /tmp/lvm_s1/file2.txt ]; then
+    CONTENT=$(cat /tmp/lvm_s1/file2.txt)
+    echo -e "  ${GREEN}✓${NC} file2.txt EXISTS on server1!"
+    echo "  Content: '$CONTENT'"
+else
+    echo -e "  ${RED}✗${NC} file2.txt MISSING on server1! (BUG)"
+fi
+
 echo -e "${CYAN}[6/7] Replicating to snapshot (server2 stays online)${NC}"
 echo "  Command: e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap"
 $E2FSPROGS_DIR/misc/e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -2
