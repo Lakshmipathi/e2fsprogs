@@ -117,7 +117,8 @@ echo ""
 echo -e "${CYAN}[1/4] Parsing trace data${NC}"
 ls -la trace_*.* 2>/dev/null | sed 's/^/  /' || true
 
-TRACE_PATTERN="trace_${LOOP_NAME}"
+# blktrace creates files like: trace_loop16.blktrace.0
+TRACE_PATTERN="trace_${LOOP_NAME}.blktrace"
 if [ ! -f "${TRACE_PATTERN}.0" ]; then
     echo -e "${RED}✗${NC} Trace file not found!"
     ls -la trace_* 2>/dev/null || echo "No trace files"
