@@ -123,10 +123,12 @@ sync
 echo -e "${GREEN}✓${NC} file1.txt created"
 
 echo -e "${CYAN}[2/2] Replicating initial state to server2${NC}"
-# Initial full sync - remount server1 ro, unmount server2
-mount -o remount,ro /tmp/lvm_s1
+# Triple sync to ensure all data is on disk
+sync; sync; sync
+echo "  Triple sync complete"
+# Both filesystems stay mounted - use -f flag
 umount /tmp/lvm_s2
-$E2FSPROGS_DIR/misc/e2image -ra /dev/test_vg/server1 /dev/test_vg/server2 2>&1 | tail -2
+$E2FSPROGS_DIR/misc/e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2 2>&1 | tail -2
 # Run e2fsck to ensure filesystem is consistent after e2image
 # e2fsck returns 0 (no errors), 1 (errors fixed), or 2 (errors fixed, reboot suggested)
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2 >/dev/null 2>&1 || [ $? -le 2 ]
@@ -135,8 +137,7 @@ $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2 >/dev/null 2>&1 || [ $? -l
 # This is FINE for production where they're on different physical servers.
 # Only change UUID if both will be mounted on the SAME machine simultaneously.
 
-echo -e "${CYAN}[2.5/2] Remounting filesystems${NC}"
-mount -o remount,rw /tmp/lvm_s1  # Back to read-write
+echo -e "${CYAN}[2.5/2] Mounting server2${NC}"
 mount /dev/test_vg/server2 /tmp/lvm_s2
 echo -e "${GREEN}✓${NC} Both filesystems mounted - Initial sync complete"
 
@@ -176,9 +177,14 @@ else
     echo -e "${RED}✗${NC} server2 offline"
 fi
 
-echo -e "${CYAN}[5/7] Syncing server1 again before e2image${NC}"
+echo -e "${CYAN}[5/7] Triple sync to ensure all data is on disk${NC}"
 sync
-echo -e "${GREEN}✓${NC} Final sync complete"
+echo "  Sync 1"
+sync
+echo "  Sync 2"
+sync
+echo "  Sync 3"
+echo -e "${GREEN}✓${NC} Triple sync complete"
 
 echo -e "${CYAN}[5.5/7] DEBUG: Verifying file2.txt exists on server1${NC}"
 echo "  Files on server1:"
@@ -191,21 +197,13 @@ else
     echo -e "  ${RED}✗${NC} file2.txt MISSING on server1! (BUG)"
 fi
 
-echo -e "${CYAN}[6/7] Remounting server1 as READ-ONLY for clean e2image${NC}"
-echo "  (Reads still work, only writes blocked - sub-millisecond downtime!)"
-mount -o remount,ro /tmp/lvm_s1
-echo -e "${GREEN}✓${NC} server1 now read-only"
-
-echo -e "${CYAN}[7/7] Replicating to snapshot (both servers stay online!)${NC}"
-echo "  Command: e2image -ra /dev/test_vg/server1 /dev/test_vg/server2_snap"
-$E2FSPROGS_DIR/misc/e2image -ra /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -2
+echo -e "${CYAN}[6/7] Replicating to snapshot (BOTH servers stay mounted!)${NC}"
+echo "  Command: e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap"
+echo "  Using -f flag to read from mounted server1"
+$E2FSPROGS_DIR/misc/e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -2
 # Run e2fsck on snapshot to ensure consistency
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2_snap >/dev/null 2>&1 || [ $? -le 2 ]
 echo -e "${GREEN}✓${NC} Replication to snapshot complete"
-
-echo -e "${CYAN}[8/8] Remounting server1 as READ-WRITE${NC}"
-mount -o remount,rw /tmp/lvm_s1
-echo -e "${GREEN}✓${NC} server1 back to read-write mode"
 
 echo -e "${CYAN}Verifying server2 remained online${NC}"
 if [ -f /tmp/lvm_s2/file1.txt ]; then
@@ -278,13 +276,10 @@ sync
 echo -e "${GREEN}✓${NC} file3.txt created"
 
 echo -e "${CYAN}[2/4] Snapshot → Replicate → Merge (all automated)${NC}"
-sync; sleep 1; sync  # Ensure all data flushed
+sync; sync; sync  # Triple sync to ensure all data flushed
 lvcreate -s -L 20M -n server2_snap /dev/test_vg/server2 >/dev/null 2>&1
-sync  # Final sync before e2image
-mount -o remount,ro /tmp/lvm_s1  # Remount server1 read-only
-$E2FSPROGS_DIR/misc/e2image -ra /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -1
+$E2FSPROGS_DIR/misc/e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -1
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2_snap >/dev/null 2>&1 || [ $? -le 2 ]
-mount -o remount,rw /tmp/lvm_s1  # Back to read-write
 umount /tmp/lvm_s2
 lvconvert --merge /dev/test_vg/server2_snap
 sleep 2
@@ -315,24 +310,26 @@ if [ "$SUCCESS" = "true" ]; then
     echo ""
     echo -e "${BOLD}Key advantages:${NC}"
     echo "  1. TRUE zero-downtime replication!"
-    echo "  2. Server1: Read-only mode (reads work, only writes blocked briefly)"
+    echo "  2. Server1: Stays fully READ-WRITE during entire replication"
     echo "  3. Server2: Stays fully online during entire replication"
     echo "  4. Atomic snapshot merge ensures consistency"
     echo "  5. Can be automated with cron/systemd timer"
     echo "  6. Safe rollback if replication fails (keep snapshot)"
-    echo "  7. Proven to work - e2image correctly replicates all files!"
+    echo "  7. NO unmount or remount required on server1!"
+    echo "  8. Proven to work - e2image correctly replicates all files!"
     echo ""
     echo -e "${BOLD}Production workflow:${NC}"
-    echo "  1. sync; sleep 1; sync  (flush all data to disk)"
+    echo "  1. sync; sync; sync  (triple sync to flush all data to disk)"
     echo "  2. lvcreate -s -L <size> -n server2_snap /dev/vg/server2"
-    echo "  3. sync  (final flush before e2image)"
-    echo "  4. mount -o remount,ro /mnt/server1  (read-only mode - reads still work!)"
-    echo "  5. e2image -ra /dev/vg/server1 /dev/vg/server2_snap"
-    echo "  6. e2fsck -fy /dev/vg/server2_snap  (ensure consistency!)"
-    echo "  7. mount -o remount,rw /mnt/server1  (server1 back to read-write)"
-    echo "  8. umount /mnt/server2  (brief server2 downtime for merge)"
-    echo "  9. lvconvert --merge /dev/vg/server2_snap"
-    echo "  10. mount /mnt/server2  (server2 back online - typically <1 second)"
+    echo "  3. e2image -ra -f /dev/vg/server1 /dev/vg/server2_snap"
+    echo "  4. e2fsck -fy /dev/vg/server2_snap  (ensure consistency!)"
+    echo "  5. umount /mnt/server2  (brief server2 downtime for merge)"
+    echo "  6. lvconvert --merge /dev/vg/server2_snap"
+    echo "  7. mount /mnt/server2  (server2 back online - typically <1 second)"
+    echo ""
+    echo -e "${BOLD}Key flags:${NC}"
+    echo "  -f: Force e2image to read from mounted server1 filesystem"
+    echo "  Triple sync: Ensures kernel writes all cached data to disk"
     echo ""
     echo -e "${BOLD}Automation:${NC}"
     echo "  - Run every N minutes/hours via cron"
