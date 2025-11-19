@@ -141,9 +141,9 @@ else
 fi
 echo ""
 
-echo -e "${BOLD}${YELLOW}PHASE 3: ZERO-DOWNTIME INCREMENTAL REPLICATION${NC}"
+echo -e "${BOLD}${YELLOW}PHASE 3: MINIMAL-DOWNTIME INCREMENTAL REPLICATION${NC}"
 echo ""
-echo -e "${CYAN}This simulates production: server2 stays mounted and online${NC}"
+echo -e "${CYAN}Brief unmount required for e2image compatibility with snapshots${NC}"
 echo ""
 
 echo -e "${CYAN}[1/7] Creating file2.txt on server1 (simulates new data)${NC}"
@@ -151,31 +151,31 @@ echo "Second file - created after initial sync" > /tmp/lvm_s1/file2.txt
 sync
 echo -e "${GREEN}✓${NC} file2.txt created on server1"
 
-echo -e "${CYAN}[2/7] Creating LVM snapshot of server2${NC}"
-echo "  This allows us to work on a snapshot while server2 stays online"
+echo -e "${CYAN}[2/7] Unmounting server2 before snapshot${NC}"
+echo "  NOTE: e2image doesn't work correctly with mounted snapshot origins"
+umount /tmp/lvm_s2
+echo -e "${GREEN}✓${NC} Unmounted (brief downtime starts)"
+
+echo -e "${CYAN}[3/7] Creating LVM snapshot of server2${NC}"
 lvcreate -s -L 20M -n server2_snap /dev/test_vg/server2 >/dev/null 2>&1
 echo -e "${GREEN}✓${NC} Snapshot created: /dev/test_vg/server2_snap"
 
-echo -e "${CYAN}[3/7] Verifying server2 is still online${NC}"
-if [ -f /tmp/lvm_s2/file1.txt ]; then
-    echo -e "${GREEN}✓${NC} server2 accessible (zero downtime!)"
-else
-    echo -e "${RED}✗${NC} server2 offline"
-fi
-
-echo -e "${CYAN}[4/7] Replicating to snapshot (server2 stays online)${NC}"
+echo -e "${CYAN}[4/7] Replicating to snapshot${NC}"
 echo "  Command: e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap"
-echo "  Note: Not using -c flag with snapshots (compare mode doesn't work with COW)"
 $E2FSPROGS_DIR/misc/e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -2
 # Run e2fsck on snapshot to ensure consistency
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2_snap >/dev/null 2>&1 || [ $? -le 2 ]
 echo -e "${GREEN}✓${NC} Replication to snapshot complete"
 
-echo -e "${CYAN}[5/7] Verifying server2 still online during replication${NC}"
+echo -e "${CYAN}[5/7] Remounting server2 (downtime ends)${NC}"
+mount /dev/test_vg/server2 /tmp/lvm_s2
+echo -e "${GREEN}✓${NC} server2 back online"
+
+echo -e "${CYAN}[5.5/7] Verifying server2 is accessible${NC}"
 if [ -f /tmp/lvm_s2/file1.txt ]; then
-    echo -e "${GREEN}✓${NC} server2 remained online throughout replication"
+    echo -e "${GREEN}✓${NC} server2 accessible with file1.txt"
 else
-    echo -e "${YELLOW}⚠${NC} server2 became unavailable"
+    echo -e "${RED}✗${NC} server2 offline or missing files"
 fi
 
 echo -e "${CYAN}[5.5/7] DEBUG: Checking snapshot contents before merge${NC}"
@@ -242,10 +242,10 @@ sync
 echo -e "${GREEN}✓${NC} file3.txt created"
 
 echo -e "${CYAN}[2/4] Snapshot → Replicate → Merge (all automated)${NC}"
+umount /tmp/lvm_s2
 lvcreate -s -L 20M -n server2_snap /dev/test_vg/server2 >/dev/null 2>&1
 $E2FSPROGS_DIR/misc/e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -1
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2_snap >/dev/null 2>&1 || [ $? -le 2 ]
-umount /tmp/lvm_s2
 lvconvert --merge /dev/test_vg/server2_snap
 sleep 2
 mount /dev/test_vg/server2 /tmp/lvm_s2
@@ -274,19 +274,19 @@ if [ "$SUCCESS" = "true" ]; then
     echo -e "${GREEN}✓ SUCCESS: LVM snapshot-based replication WORKS!${NC}"
     echo ""
     echo -e "${BOLD}Key advantages:${NC}"
-    echo "  1. Near-zero downtime (only milliseconds for merge)"
-    echo "  2. Server2 stays online during replication"
-    echo "  3. Atomic snapshot merge ensures consistency"
-    echo "  4. Can be automated with cron/systemd timer"
-    echo "  5. Safe rollback if replication fails (keep snapshot)"
+    echo "  1. Minimal downtime (unmount → snapshot → replicate → merge → remount)"
+    echo "  2. Atomic snapshot merge ensures consistency"
+    echo "  3. Can be automated with cron/systemd timer"
+    echo "  4. Safe rollback if replication fails (keep snapshot)"
+    echo "  5. Server1 can stay mounted (use -f flag)"
     echo ""
-    echo -e "${BOLD}Production workflow:${NC}"
-    echo "  1. lvcreate -s -L <size> -n server2_snap /dev/vg/server2"
-    echo "  2. e2image -ra -f /dev/vg/server1 /dev/vg/server2_snap  (no -c with snapshots!)"
-    echo "  3. e2fsck -fy /dev/vg/server2_snap  (ensure consistency!)"
-    echo "  4. umount /mnt/server2 (brief downtime starts)"
+    echo -e "${BOLD}Production workflow (CRITICAL ORDER):${NC}"
+    echo "  1. umount /mnt/server2  (downtime starts)"
+    echo "  2. lvcreate -s -L <size> -n server2_snap /dev/vg/server2"
+    echo "  3. e2image -ra -f /dev/vg/server1 /dev/vg/server2_snap"
+    echo "  4. e2fsck -fy /dev/vg/server2_snap  (ensure consistency!)"
     echo "  5. lvconvert --merge /dev/vg/server2_snap"
-    echo "  6. mount /mnt/server2 (downtime ends - typically <1 second)"
+    echo "  6. mount /mnt/server2  (downtime ends - typically 2-5 seconds total)"
     echo ""
     echo -e "${BOLD}Automation:${NC}"
     echo "  - Run every N minutes/hours via cron"
