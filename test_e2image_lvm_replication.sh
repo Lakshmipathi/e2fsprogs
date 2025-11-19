@@ -121,6 +121,8 @@ echo -e "${CYAN}[2/2] Replicating initial state to server2${NC}"
 # Initial full sync - unmount server2 for this
 umount /tmp/lvm_s2
 $E2FSPROGS_DIR/misc/e2image -ra -c -f /dev/test_vg/server1 /dev/test_vg/server2 2>&1 | tail -2
+# Run e2fsck to ensure filesystem is consistent after e2image
+$E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2 >/dev/null 2>&1
 mount /dev/test_vg/server2 /tmp/lvm_s2
 echo -e "${GREEN}✓${NC} Initial sync complete"
 
@@ -158,6 +160,8 @@ fi
 echo -e "${CYAN}[4/7] Replicating to snapshot (server2 stays online)${NC}"
 echo "  Command: e2image -ra -c -f /dev/test_vg/server1 /dev/test_vg/server2_snap"
 $E2FSPROGS_DIR/misc/e2image -ra -c -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -2
+# Run e2fsck on snapshot to ensure consistency
+$E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2_snap >/dev/null 2>&1
 echo -e "${GREEN}✓${NC} Replication to snapshot complete"
 
 echo -e "${CYAN}[5/7] Verifying server2 still online during replication${NC}"
@@ -221,6 +225,7 @@ echo -e "${GREEN}✓${NC} file3.txt created"
 echo -e "${CYAN}[2/4] Snapshot → Replicate → Merge (all automated)${NC}"
 lvcreate -s -L 20M -n server2_snap /dev/test_vg/server2 >/dev/null 2>&1
 $E2FSPROGS_DIR/misc/e2image -ra -c -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -1
+$E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2_snap >/dev/null 2>&1
 umount /tmp/lvm_s2
 lvconvert --merge /dev/test_vg/server2_snap
 sleep 2
@@ -259,9 +264,10 @@ if [ "$SUCCESS" = "true" ]; then
     echo -e "${BOLD}Production workflow:${NC}"
     echo "  1. lvcreate -s -L <size> -n server2_snap /dev/vg/server2"
     echo "  2. e2image -ra -c -f /dev/vg/server1 /dev/vg/server2_snap"
-    echo "  3. umount /mnt/server2 (brief downtime starts)"
-    echo "  4. lvconvert --merge /dev/vg/server2_snap"
-    echo "  5. mount /mnt/server2 (downtime ends - typically <1 second)"
+    echo "  3. e2fsck -fy /dev/vg/server2_snap  (ensure consistency!)"
+    echo "  4. umount /mnt/server2 (brief downtime starts)"
+    echo "  5. lvconvert --merge /dev/vg/server2_snap"
+    echo "  6. mount /mnt/server2 (downtime ends - typically <1 second)"
     echo ""
     echo -e "${BOLD}Automation:${NC}"
     echo "  - Run every N minutes/hours via cron"
