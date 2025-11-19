@@ -80,7 +80,9 @@ echo -e "${BOLD}${YELLOW}PHASE 2: START BLKTRACE${NC}"
 echo ""
 
 echo -e "${CYAN}[1/2] Starting blktrace on $LOOP_DEV${NC}"
-blktrace -d "$LOOP_DEV" -o trace &
+# Use device name in output to match blkparse expectations
+LOOP_NAME=$(basename "$LOOP_DEV")
+blktrace -d "$LOOP_DEV" -o trace_$LOOP_NAME &
 BLKTRACE_PID=$!
 sleep 2
 echo -e "${GREEN}✓${NC} blktrace running (PID: $BLKTRACE_PID)"
@@ -113,16 +115,17 @@ echo -e "${BOLD}${YELLOW}PHASE 4: ANALYZE TRACE${NC}"
 echo ""
 
 echo -e "${CYAN}[1/4] Parsing trace data${NC}"
-ls -la trace.blktrace.* 2>/dev/null | sed 's/^/  /' || true
+ls -la trace_*.* 2>/dev/null | sed 's/^/  /' || true
 
-if [ ! -f "trace.blktrace.0" ]; then
+TRACE_PATTERN="trace_${LOOP_NAME}"
+if [ ! -f "${TRACE_PATTERN}.0" ]; then
     echo -e "${RED}✗${NC} Trace file not found!"
-    ls -la trace.* 2>/dev/null || echo "No trace files"
+    ls -la trace_* 2>/dev/null || echo "No trace files"
     exit 1
 fi
 
-echo "  Running blkparse..."
-if ! blkparse -i trace.blktrace > trace_parsed.txt 2>&1; then
+echo "  Running blkparse on ${TRACE_PATTERN}..."
+if ! blkparse -i "$TRACE_PATTERN" > trace_parsed.txt 2>&1; then
     echo -e "${RED}✗${NC} blkparse failed!"
     echo "Error output:"
     cat trace_parsed.txt | head -20 | sed 's/^/  /'
