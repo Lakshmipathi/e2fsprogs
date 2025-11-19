@@ -192,13 +192,24 @@ sync
 echo -e "${GREEN}✓${NC} file1.txt created"
 
 echo -e "${CYAN}[2/2] Replicating initial state to server2${NC}"
-umount /tmp/lvm_s2
-$E2FSPROGS_DIR/misc/e2image -ra $DEV1 $DEV2 2>&1 | tail -2
-$E2FSPROGS_DIR/e2fsck/e2fsck -fy $DEV2 >/dev/null 2>&1 || [ $? -le 2 ]
-
-echo -e "${CYAN}[2.5/2] Mounting server2${NC}"
-mount $DEV2 /tmp/lvm_s2
-echo -e "${GREEN}✓${NC} Both filesystems mounted - Initial sync complete"
+if [ "$MODE" = "lvm" ]; then
+    echo "  Using LVM snapshot for consistent initial sync"
+    lvcreate -s -L 20M -n server1_snap /dev/test_vg/server1 >/dev/null 2>&1
+    umount /tmp/lvm_s2
+    $E2FSPROGS_DIR/misc/e2image -ra /dev/test_vg/server1_snap $DEV2 2>&1 | tail -2
+    $E2FSPROGS_DIR/e2fsck/e2fsck -fy $DEV2 >/dev/null 2>&1 || [ $? -le 2 ]
+    lvremove -f /dev/test_vg/server1_snap >/dev/null 2>&1
+    mount $DEV2 /tmp/lvm_s2
+else
+    echo "  Temporarily unmounting server1 for initial sync"
+    umount /tmp/lvm_s1
+    umount /tmp/lvm_s2
+    $E2FSPROGS_DIR/misc/e2image -ra $DEV1 $DEV2 2>&1 | tail -2
+    $E2FSPROGS_DIR/e2fsck/e2fsck -fy $DEV2 >/dev/null 2>&1 || [ $? -le 2 ]
+    mount $DEV1 /tmp/lvm_s1
+    mount $DEV2 /tmp/lvm_s2
+fi
+echo -e "${GREEN}✓${NC} Initial sync complete"
 
 # Verify
 if [ -f /tmp/lvm_s2/file1.txt ]; then
