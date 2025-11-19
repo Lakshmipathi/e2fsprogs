@@ -136,27 +136,40 @@ fi
 PARSED_LINES=$(wc -l < trace_parsed.txt)
 echo -e "${GREEN}✓${NC} Trace parsed ($PARSED_LINES lines)"
 
-echo -e "${CYAN}[2/4] Filtering WRITE operations${NC}"
-grep -E "^\s+[0-9]+\s+[0-9]+\s+[0-9]+\s+[0-9.]+\s+[0-9]+\s+[DWC]" trace_parsed.txt > writes.txt || true
+echo -e "${CYAN}[2/4] Filtering I/O operations${NC}"
+# Look for D (Dispatch) operations which show actual I/O
+grep -E '\s+D\s+' trace_parsed.txt > writes.txt || true
 WRITE_COUNT=$(wc -l < writes.txt)
-echo -e "${GREEN}✓${NC} Found $WRITE_COUNT write operations"
+echo -e "${GREEN}✓${NC} Found $WRITE_COUNT dispatch operations"
 
 if [ "$WRITE_COUNT" -eq 0 ]; then
-    echo -e "${RED}✗${NC} No writes captured!"
+    echo -e "${RED}✗${NC} No I/O operations captured!"
     echo ""
     echo "First 30 lines of trace:"
     head -30 trace_parsed.txt | sed 's/^/  /'
     exit 1
 fi
 
-echo -e "${CYAN}[3/4] Extracting block numbers and sizes${NC}"
-# Parse blktrace output format: sector + size
-awk '/^\s+[0-9]+.*W/ {print $4, $6}' writes.txt | sort -u > blocks_to_copy.txt
-BLOCK_COUNT=$(wc -l < blocks_to_copy.txt)
-echo -e "${GREEN}✓${NC} Found $BLOCK_COUNT unique blocks to replicate"
+echo -e "${CYAN}[3/4] Extracting sector numbers and sizes${NC}"
+# blktrace format: device cpu seq timestamp pid action type sector + size [process]
+# Example: 7,19   3    8    0.306479405 15146  D  RM 13362 + 2 [bash]
+# We want sector (field before +) and size (field after +)
+awk '{
+    for (i=1; i<=NF; i++) {
+        if ($i == "+" && i > 1) {
+            sector = $(i-1)
+            size = $(i+1)
+            print sector, size
+            break
+        }
+    }
+}' writes.txt | sort -u > blocks_to_copy.txt
 
-echo -e "${CYAN}[4/4] Showing sample blocks${NC}"
-echo "  First 5 blocks:"
+BLOCK_COUNT=$(wc -l < blocks_to_copy.txt)
+echo -e "${GREEN}✓${NC} Found $BLOCK_COUNT unique sector ranges"
+
+echo -e "${CYAN}[4/4] Showing sample sectors${NC}"
+echo "  First 5 sector ranges (sector + size_in_512b_blocks):"
 head -5 blocks_to_copy.txt | sed 's/^/    /'
 echo ""
 
