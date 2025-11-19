@@ -131,14 +131,11 @@ $E2FSPROGS_DIR/misc/e2image -ra /dev/test_vg/server1 /dev/test_vg/server2 2>&1 |
 # e2fsck returns 0 (no errors), 1 (errors fixed), or 2 (errors fixed, reboot suggested)
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2 >/dev/null 2>&1 || [ $? -le 2 ]
 
-# CRITICAL: Change server2's UUID to avoid conflicts with server1
-# e2image copies the UUID, so server1 and server2 have identical UUIDs
-# This confuses e2image on subsequent runs
-echo -e "${CYAN}[2.5/2] Changing server2 UUID to avoid conflicts${NC}"
-$E2FSPROGS_DIR/misc/tune2fs -U random /dev/test_vg/server2 >/dev/null 2>&1
-echo -e "${GREEN}✓${NC} UUID changed"
+# NOTE: e2image copies the UUID, so server1 and server2 have identical UUIDs.
+# This is FINE for production where they're on different physical servers.
+# Only change UUID if both will be mounted on the SAME machine simultaneously.
 
-echo -e "${CYAN}[2.6/2] Remounting filesystems${NC}"
+echo -e "${CYAN}[2.5/2] Remounting filesystems${NC}"
 mount -o remount,rw /tmp/lvm_s1  # Back to read-write
 mount /dev/test_vg/server2 /tmp/lvm_s2
 echo -e "${GREEN}✓${NC} Both filesystems mounted - Initial sync complete"
