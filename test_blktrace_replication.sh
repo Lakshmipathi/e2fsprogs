@@ -118,15 +118,16 @@ echo -e "${CYAN}[1/4] Parsing trace data${NC}"
 ls -la trace_*.* 2>/dev/null | sed 's/^/  /' || true
 
 # blktrace creates files like: trace_loop16.blktrace.0
-TRACE_PATTERN="trace_${LOOP_NAME}.blktrace"
-if [ ! -f "${TRACE_PATTERN}.0" ]; then
+# blkparse expects base name: trace_loop16 (it auto-appends .blktrace.N)
+TRACE_BASE="trace_${LOOP_NAME}"
+if [ ! -f "${TRACE_BASE}.blktrace.0" ]; then
     echo -e "${RED}✗${NC} Trace file not found!"
     ls -la trace_* 2>/dev/null || echo "No trace files"
     exit 1
 fi
 
-echo "  Running blkparse on ${TRACE_PATTERN}..."
-if ! blkparse -i "$TRACE_PATTERN" > trace_parsed.txt 2>&1; then
+echo "  Running blkparse on ${TRACE_BASE}..."
+if ! blkparse -i "$TRACE_BASE" > trace_parsed.txt 2>&1; then
     echo -e "${RED}✗${NC} blkparse failed!"
     echo "Error output:"
     cat trace_parsed.txt | head -20 | sed 's/^/  /'
