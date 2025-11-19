@@ -178,6 +178,18 @@ else
     echo -e "${YELLOW}⚠${NC} server2 became unavailable"
 fi
 
+echo -e "${CYAN}[5.5/7] DEBUG: Checking snapshot contents before merge${NC}"
+mkdir -p /tmp/lvm_snap_check
+mount /dev/test_vg/server2_snap /tmp/lvm_snap_check
+echo "  Files on snapshot:"
+ls -la /tmp/lvm_snap_check/*.txt 2>/dev/null | sed 's/^/    /' || echo "    (no .txt files)"
+if [ -f /tmp/lvm_snap_check/file2.txt ]; then
+    echo -e "  ${GREEN}✓${NC} file2.txt EXISTS on snapshot before merge!"
+else
+    echo -e "  ${RED}✗${NC} file2.txt MISSING on snapshot!"
+fi
+umount /tmp/lvm_snap_check
+
 echo -e "${CYAN}[6/7] Unmounting server2 briefly for atomic merge${NC}"
 umount /tmp/lvm_s2
 echo -e "${GREEN}✓${NC} Unmounted"
