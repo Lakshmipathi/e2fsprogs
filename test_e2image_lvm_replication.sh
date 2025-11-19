@@ -50,14 +50,18 @@ cleanup() {
     lvremove -f /dev/test_vg/server1 2>/dev/null || true
     lvremove -f /dev/test_vg/server2 2>/dev/null || true
     vgremove -f test_vg 2>/dev/null || true
-    pvremove -f /dev/loop10 2>/dev/null || true
-    pvremove -f /dev/loop11 2>/dev/null || true
+
+    # Find and remove loop devices dynamically
+    LOOP1=$(losetup -j lvm_pv1.img 2>/dev/null | cut -d: -f1)
+    LOOP2=$(losetup -j lvm_pv2.img 2>/dev/null | cut -d: -f1)
+    [ -n "$LOOP1" ] && pvremove -f "$LOOP1" 2>/dev/null || true
+    [ -n "$LOOP2" ] && pvremove -f "$LOOP2" 2>/dev/null || true
 
     umount /tmp/lvm_s1 2>/dev/null || true
     umount /tmp/lvm_s2 2>/dev/null || true
 
-    losetup -d /dev/loop10 2>/dev/null || true
-    losetup -d /dev/loop11 2>/dev/null || true
+    [ -n "$LOOP1" ] && losetup -d "$LOOP1" 2>/dev/null || true
+    [ -n "$LOOP2" ] && losetup -d "$LOOP2" 2>/dev/null || true
 
     rm -rf /tmp/test_lvm_repl
 }
@@ -75,17 +79,18 @@ dd if=/dev/zero of=lvm_pv2.img bs=1M count=200 2>/dev/null
 echo -e "${GREEN}✓${NC} Backing files created (200MB each)"
 
 echo -e "${CYAN}[2/8] Setting up loop devices${NC}"
-losetup /dev/loop10 lvm_pv1.img
-losetup /dev/loop11 lvm_pv2.img
-echo -e "${GREEN}✓${NC} Loop devices: /dev/loop10, /dev/loop11"
+LOOP_PV1=$(losetup -f --show lvm_pv1.img)
+sleep 0.5  # Brief delay for device to settle
+LOOP_PV2=$(losetup -f --show lvm_pv2.img)
+echo -e "${GREEN}✓${NC} Loop devices: $LOOP_PV1, $LOOP_PV2"
 
 echo -e "${CYAN}[3/8] Creating LVM physical volumes${NC}"
-pvcreate /dev/loop10 >/dev/null 2>&1
-pvcreate /dev/loop11 >/dev/null 2>&1
+pvcreate $LOOP_PV1 >/dev/null 2>&1
+pvcreate $LOOP_PV2 >/dev/null 2>&1
 echo -e "${GREEN}✓${NC} Physical volumes created"
 
 echo -e "${CYAN}[4/8] Creating volume group 'test_vg'${NC}"
-vgcreate test_vg /dev/loop10 /dev/loop11 >/dev/null 2>&1
+vgcreate test_vg $LOOP_PV1 $LOOP_PV2 >/dev/null 2>&1
 echo -e "${GREEN}✓${NC} Volume group created"
 
 echo -e "${CYAN}[5/8] Creating logical volumes${NC}"
