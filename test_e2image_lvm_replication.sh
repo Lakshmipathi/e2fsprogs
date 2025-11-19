@@ -177,16 +177,7 @@ else
     echo -e "${RED}✗${NC} server2 offline"
 fi
 
-echo -e "${CYAN}[5/7] Triple sync to ensure all data is on disk${NC}"
-sync
-echo "  Sync 1"
-sync
-echo "  Sync 2"
-sync
-echo "  Sync 3"
-echo -e "${GREEN}✓${NC} Triple sync complete"
-
-echo -e "${CYAN}[5.5/7] DEBUG: Verifying file2.txt exists on server1${NC}"
+echo -e "${CYAN}[5/7] DEBUG: Verifying file2.txt exists on server1${NC}"
 echo "  Files on server1:"
 ls -la /tmp/lvm_s1/*.txt 2>/dev/null | sed 's/^/    /'
 if [ -f /tmp/lvm_s1/file2.txt ]; then
@@ -197,13 +188,22 @@ else
     echo -e "  ${RED}✗${NC} file2.txt MISSING on server1! (BUG)"
 fi
 
-echo -e "${CYAN}[6/7] Replicating to snapshot (BOTH servers stay mounted!)${NC}"
-echo "  Command: e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap"
-echo "  Using -f flag to read from mounted server1"
-$E2FSPROGS_DIR/misc/e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -2
+echo -e "${CYAN}[6/7] Creating LVM snapshot of SERVER1 (zero-downtime!)${NC}"
+echo "  Server1 stays 100% read-write - no remount, no freeze, nothing!"
+echo "  LVM snapshot = atomic point-in-time copy with automatic consistency"
+lvcreate -s -L 20M -n server1_snap /dev/test_vg/server1 >/dev/null 2>&1
+echo -e "${GREEN}✓${NC} Server1 snapshot created"
+
+echo -e "${CYAN}[7/7] Replicating from server1 snapshot to server2 snapshot${NC}"
+echo "  Command: e2image -ra /dev/test_vg/server1_snap /dev/test_vg/server2_snap"
+$E2FSPROGS_DIR/misc/e2image -ra /dev/test_vg/server1_snap /dev/test_vg/server2_snap 2>&1 | tail -2
 # Run e2fsck on snapshot to ensure consistency
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2_snap >/dev/null 2>&1 || [ $? -le 2 ]
-echo -e "${GREEN}✓${NC} Replication to snapshot complete"
+echo -e "${GREEN}✓${NC} Replication complete"
+
+echo -e "${CYAN}[8/8] Cleaning up server1 snapshot${NC}"
+lvremove -f /dev/test_vg/server1_snap >/dev/null 2>&1
+echo -e "${GREEN}✓${NC} Server1 snapshot removed"
 
 echo -e "${CYAN}Verifying server2 remained online${NC}"
 if [ -f /tmp/lvm_s2/file1.txt ]; then
@@ -276,10 +276,11 @@ sync
 echo -e "${GREEN}✓${NC} file3.txt created"
 
 echo -e "${CYAN}[2/4] Snapshot → Replicate → Merge (all automated)${NC}"
-sync; sync; sync  # Triple sync to ensure all data flushed
+lvcreate -s -L 20M -n server1_snap /dev/test_vg/server1 >/dev/null 2>&1
 lvcreate -s -L 20M -n server2_snap /dev/test_vg/server2 >/dev/null 2>&1
-$E2FSPROGS_DIR/misc/e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -1
+$E2FSPROGS_DIR/misc/e2image -ra /dev/test_vg/server1_snap /dev/test_vg/server2_snap 2>&1 | tail -1
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2_snap >/dev/null 2>&1 || [ $? -le 2 ]
+lvremove -f /dev/test_vg/server1_snap >/dev/null 2>&1
 umount /tmp/lvm_s2
 lvconvert --merge /dev/test_vg/server2_snap
 sleep 2
@@ -309,27 +310,30 @@ if [ "$SUCCESS" = "true" ]; then
     echo -e "${GREEN}✓ SUCCESS: LVM snapshot-based replication WORKS!${NC}"
     echo ""
     echo -e "${BOLD}Key advantages:${NC}"
-    echo "  1. TRUE zero-downtime replication!"
-    echo "  2. Server1: Stays fully READ-WRITE during entire replication"
-    echo "  3. Server2: Stays fully online during entire replication"
-    echo "  4. Atomic snapshot merge ensures consistency"
+    echo "  1. ABSOLUTE zero-downtime replication!"
+    echo "  2. Server1: 100% READ-WRITE throughout - NO remount, NO freeze!"
+    echo "  3. Server2: Stays online during replication"
+    echo "  4. LVM handles consistency automatically via snapshots"
     echo "  5. Can be automated with cron/systemd timer"
     echo "  6. Safe rollback if replication fails (keep snapshot)"
-    echo "  7. NO unmount or remount required on server1!"
-    echo "  8. Proven to work - e2image correctly replicates all files!"
+    echo "  7. Production-ready: No blocking on primary server!"
     echo ""
-    echo -e "${BOLD}Production workflow:${NC}"
-    echo "  1. sync; sync; sync  (triple sync to flush all data to disk)"
+    echo -e "${BOLD}Production workflow (TRUE zero-downtime):${NC}"
+    echo "  1. lvcreate -s -L <size> -n server1_snap /dev/vg/server1"
+    echo "     (Snapshot server1 - atomic, instant, zero blocking!)"
     echo "  2. lvcreate -s -L <size> -n server2_snap /dev/vg/server2"
-    echo "  3. e2image -ra -f /dev/vg/server1 /dev/vg/server2_snap"
-    echo "  4. e2fsck -fy /dev/vg/server2_snap  (ensure consistency!)"
-    echo "  5. umount /mnt/server2  (brief server2 downtime for merge)"
-    echo "  6. lvconvert --merge /dev/vg/server2_snap"
-    echo "  7. mount /mnt/server2  (server2 back online - typically <1 second)"
+    echo "  3. e2image -ra /dev/vg/server1_snap /dev/vg/server2_snap"
+    echo "     (Replicate from server1 snapshot to server2 snapshot)"
+    echo "  4. e2fsck -fy /dev/vg/server2_snap"
+    echo "  5. lvremove -f /dev/vg/server1_snap  (cleanup)"
+    echo "  6. umount /mnt/server2  (brief server2 downtime for merge)"
+    echo "  7. lvconvert --merge /dev/vg/server2_snap"
+    echo "  8. mount /mnt/server2  (server2 back online)"
     echo ""
-    echo -e "${BOLD}Key flags:${NC}"
-    echo "  -f: Force e2image to read from mounted server1 filesystem"
-    echo "  Triple sync: Ensures kernel writes all cached data to disk"
+    echo -e "${BOLD}Why this works:${NC}"
+    echo "  - LVM snapshot is atomic and handles ALL metadata consistency"
+    echo "  - No need for sync, fsfreeze, or remount on server1"
+    echo "  - Server1 stays 100% operational for reads AND writes"
     echo ""
     echo -e "${BOLD}Automation:${NC}"
     echo "  - Run every N minutes/hours via cron"
