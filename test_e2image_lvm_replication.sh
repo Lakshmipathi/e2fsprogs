@@ -164,8 +164,9 @@ else
 fi
 
 echo -e "${CYAN}[4/7] Replicating to snapshot (server2 stays online)${NC}"
-echo "  Command: e2image -ra -c -f /dev/test_vg/server1 /dev/test_vg/server2_snap"
-$E2FSPROGS_DIR/misc/e2image -ra -c -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -2
+echo "  Command: e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap"
+echo "  Note: Not using -c flag with snapshots (compare mode doesn't work with COW)"
+$E2FSPROGS_DIR/misc/e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -2
 # Run e2fsck on snapshot to ensure consistency
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2_snap >/dev/null 2>&1 || [ $? -le 2 ]
 echo -e "${GREEN}✓${NC} Replication to snapshot complete"
@@ -230,7 +231,7 @@ echo -e "${GREEN}✓${NC} file3.txt created"
 
 echo -e "${CYAN}[2/4] Snapshot → Replicate → Merge (all automated)${NC}"
 lvcreate -s -L 20M -n server2_snap /dev/test_vg/server2 >/dev/null 2>&1
-$E2FSPROGS_DIR/misc/e2image -ra -c -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -1
+$E2FSPROGS_DIR/misc/e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -1
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2_snap >/dev/null 2>&1 || [ $? -le 2 ]
 umount /tmp/lvm_s2
 lvconvert --merge /dev/test_vg/server2_snap
@@ -269,7 +270,7 @@ if [ "$SUCCESS" = "true" ]; then
     echo ""
     echo -e "${BOLD}Production workflow:${NC}"
     echo "  1. lvcreate -s -L <size> -n server2_snap /dev/vg/server2"
-    echo "  2. e2image -ra -c -f /dev/vg/server1 /dev/vg/server2_snap"
+    echo "  2. e2image -ra -f /dev/vg/server1 /dev/vg/server2_snap  (no -c with snapshots!)"
     echo "  3. e2fsck -fy /dev/vg/server2_snap  (ensure consistency!)"
     echo "  4. umount /mnt/server2 (brief downtime starts)"
     echo "  5. lvconvert --merge /dev/vg/server2_snap"
