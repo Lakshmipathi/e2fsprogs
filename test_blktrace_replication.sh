@@ -113,14 +113,23 @@ echo -e "${BOLD}${YELLOW}PHASE 4: ANALYZE TRACE${NC}"
 echo ""
 
 echo -e "${CYAN}[1/4] Parsing trace data${NC}"
+ls -la trace.blktrace.* 2>/dev/null | sed 's/^/  /' || true
+
 if [ ! -f "trace.blktrace.0" ]; then
     echo -e "${RED}✗${NC} Trace file not found!"
     ls -la trace.* 2>/dev/null || echo "No trace files"
     exit 1
 fi
 
-blkparse -i trace.blktrace > trace_parsed.txt 2>/dev/null
-echo -e "${GREEN}✓${NC} Trace parsed"
+echo "  Running blkparse..."
+if ! blkparse -i trace.blktrace > trace_parsed.txt 2>&1; then
+    echo -e "${RED}✗${NC} blkparse failed!"
+    echo "Error output:"
+    cat trace_parsed.txt | head -20 | sed 's/^/  /'
+    exit 1
+fi
+PARSED_LINES=$(wc -l < trace_parsed.txt)
+echo -e "${GREEN}✓${NC} Trace parsed ($PARSED_LINES lines)"
 
 echo -e "${CYAN}[2/4] Filtering WRITE operations${NC}"
 grep -E "^\s+[0-9]+\s+[0-9]+\s+[0-9]+\s+[0-9.]+\s+[0-9]+\s+[DWC]" trace_parsed.txt > writes.txt || true
