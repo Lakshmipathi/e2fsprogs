@@ -80,7 +80,6 @@ echo -e "${BOLD}${YELLOW}PHASE 2: START BLKTRACE${NC}"
 echo ""
 
 echo -e "${CYAN}[1/2] Starting blktrace on $LOOP_DEV${NC}"
-LOOP_NAME=$(basename "$LOOP_DEV")
 blktrace -d "$LOOP_DEV" -o trace &
 BLKTRACE_PID=$!
 sleep 2
@@ -114,13 +113,13 @@ echo -e "${BOLD}${YELLOW}PHASE 4: ANALYZE TRACE${NC}"
 echo ""
 
 echo -e "${CYAN}[1/4] Parsing trace data${NC}"
-if [ ! -f "trace.${LOOP_NAME}.0" ]; then
+if [ ! -f "trace.blktrace.0" ]; then
     echo -e "${RED}✗${NC} Trace file not found!"
     ls -la trace.* 2>/dev/null || echo "No trace files"
     exit 1
 fi
 
-blkparse -i trace.${LOOP_NAME} > trace_parsed.txt 2>/dev/null
+blkparse -i trace.blktrace > trace_parsed.txt 2>/dev/null
 echo -e "${GREEN}✓${NC} Trace parsed"
 
 echo -e "${CYAN}[2/4] Filtering WRITE operations${NC}"
