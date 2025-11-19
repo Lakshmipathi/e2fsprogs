@@ -123,9 +123,10 @@ sync
 echo -e "${GREEN}✓${NC} file1.txt created"
 
 echo -e "${CYAN}[2/2] Replicating initial state to server2${NC}"
-# Initial full sync - unmount server2 for this
+# Initial full sync - unmount both for clean replication
+umount /tmp/lvm_s1
 umount /tmp/lvm_s2
-$E2FSPROGS_DIR/misc/e2image -ra -c -f /dev/test_vg/server1 /dev/test_vg/server2 2>&1 | tail -2
+$E2FSPROGS_DIR/misc/e2image -ra /dev/test_vg/server1 /dev/test_vg/server2 2>&1 | tail -2
 # Run e2fsck to ensure filesystem is consistent after e2image
 # e2fsck returns 0 (no errors), 1 (errors fixed), or 2 (errors fixed, reboot suggested)
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2 >/dev/null 2>&1 || [ $? -le 2 ]
@@ -137,8 +138,10 @@ echo -e "${CYAN}[2.5/2] Changing server2 UUID to avoid conflicts${NC}"
 $E2FSPROGS_DIR/misc/tune2fs -U random /dev/test_vg/server2 >/dev/null 2>&1
 echo -e "${GREEN}✓${NC} UUID changed"
 
+echo -e "${CYAN}[2.6/2] Remounting both filesystems${NC}"
+mount /dev/test_vg/server1 /tmp/lvm_s1
 mount /dev/test_vg/server2 /tmp/lvm_s2
-echo -e "${GREEN}✓${NC} Initial sync complete"
+echo -e "${GREEN}✓${NC} Both filesystems mounted - Initial sync complete"
 
 # Verify
 if [ -f /tmp/lvm_s2/file1.txt ]; then
@@ -191,21 +194,30 @@ else
     echo -e "  ${RED}✗${NC} file2.txt MISSING on server1! (BUG)"
 fi
 
-echo -e "${CYAN}[6/7] Replicating to snapshot (server2 stays online)${NC}"
-echo "  Command: e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap"
-$E2FSPROGS_DIR/misc/e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -2
+echo -e "${CYAN}[6/7] Unmounting server1 temporarily for clean e2image${NC}"
+echo "  (This ensures e2image reads consistent data from disk)"
+umount /tmp/lvm_s1
+echo -e "${GREEN}✓${NC} server1 unmounted"
+
+echo -e "${CYAN}[7/7] Replicating to snapshot (server2 stays online)${NC}"
+echo "  Command: e2image -ra /dev/test_vg/server1 /dev/test_vg/server2_snap (no -f flag)"
+$E2FSPROGS_DIR/misc/e2image -ra /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -2
 # Run e2fsck on snapshot to ensure consistency
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2_snap >/dev/null 2>&1 || [ $? -le 2 ]
 echo -e "${GREEN}✓${NC} Replication to snapshot complete"
 
-echo -e "${CYAN}[7/7] Verifying server2 still online after replication${NC}"
+echo -e "${CYAN}[8/8] Remounting server1${NC}"
+mount /dev/test_vg/server1 /tmp/lvm_s1
+echo -e "${GREEN}✓${NC} server1 back online"
+
+echo -e "${CYAN}Verifying server2 remained online${NC}"
 if [ -f /tmp/lvm_s2/file1.txt ]; then
-    echo -e "${GREEN}✓${NC} server2 remained online throughout replication"
+    echo -e "${GREEN}✓${NC} server2 stayed online (zero downtime for server2!)"
 else
     echo -e "${YELLOW}⚠${NC} server2 became unavailable"
 fi
 
-echo -e "${CYAN}[5.5/7] DEBUG: Checking snapshot contents before merge${NC}"
+echo -e "${CYAN}DEBUG: Checking snapshot contents before merge${NC}"
 mkdir -p /tmp/lvm_snap_check
 mount /dev/test_vg/server2_snap /tmp/lvm_snap_check
 echo "  Files on snapshot:"
@@ -272,8 +284,10 @@ echo -e "${CYAN}[2/4] Snapshot → Replicate → Merge (all automated)${NC}"
 sync; sleep 1; sync  # Ensure all data flushed
 lvcreate -s -L 20M -n server2_snap /dev/test_vg/server2 >/dev/null 2>&1
 sync  # Final sync before e2image
-$E2FSPROGS_DIR/misc/e2image -ra -f /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -1
+umount /tmp/lvm_s1  # Unmount server1 for clean e2image
+$E2FSPROGS_DIR/misc/e2image -ra /dev/test_vg/server1 /dev/test_vg/server2_snap 2>&1 | tail -1
 $E2FSPROGS_DIR/e2fsck/e2fsck -fy /dev/test_vg/server2_snap >/dev/null 2>&1 || [ $? -le 2 ]
+mount /dev/test_vg/server1 /tmp/lvm_s1  # Remount server1
 umount /tmp/lvm_s2
 lvconvert --merge /dev/test_vg/server2_snap
 sleep 2
@@ -303,21 +317,24 @@ if [ "$SUCCESS" = "true" ]; then
     echo -e "${GREEN}✓ SUCCESS: LVM snapshot-based replication WORKS!${NC}"
     echo ""
     echo -e "${BOLD}Key advantages:${NC}"
-    echo "  1. Near-zero downtime (only milliseconds for merge)"
-    echo "  2. Server2 stays online during replication"
+    echo "  1. Brief downtime for server1 (seconds) and server2 (milliseconds)"
+    echo "  2. Server2 stays online during most of the replication"
     echo "  3. Atomic snapshot merge ensures consistency"
     echo "  4. Can be automated with cron/systemd timer"
     echo "  5. Safe rollback if replication fails (keep snapshot)"
+    echo "  6. Proven to work - e2image correctly replicates all files!"
     echo ""
     echo -e "${BOLD}Production workflow:${NC}"
     echo "  1. sync; sleep 1; sync  (flush all data to disk)"
     echo "  2. lvcreate -s -L <size> -n server2_snap /dev/vg/server2"
     echo "  3. sync  (final flush before e2image)"
-    echo "  4. e2image -ra -f /dev/vg/server1 /dev/vg/server2_snap"
-    echo "  5. e2fsck -fy /dev/vg/server2_snap  (ensure consistency!)"
-    echo "  6. umount /mnt/server2 (brief downtime starts)"
-    echo "  7. lvconvert --merge /dev/vg/server2_snap"
-    echo "  8. mount /mnt/server2 (downtime ends - typically <1 second)"
+    echo "  4. umount /mnt/server1  (brief server1 downtime for clean snapshot)"
+    echo "  5. e2image -ra /dev/vg/server1 /dev/vg/server2_snap  (no -f flag!)"
+    echo "  6. e2fsck -fy /dev/vg/server2_snap  (ensure consistency!)"
+    echo "  7. mount /mnt/server1  (server1 back online)"
+    echo "  8. umount /mnt/server2 (brief server2 downtime for merge)"
+    echo "  9. lvconvert --merge /dev/vg/server2_snap"
+    echo "  10. mount /mnt/server2 (server2 back online - typically <1 second)"
     echo ""
     echo -e "${BOLD}Automation:${NC}"
     echo "  - Run every N minutes/hours via cron"
