@@ -1,22 +1,39 @@
 #
 # Makefile for ext4_visual_defrag
 #
+# Builds the standalone version (no e2fsprogs library dependencies)
+# For the full e2fsprogs version, use: make full
+#
 
 CC = gcc
 CFLAGS = -Wall -O2 -D_FILE_OFFSET_BITS=64
-LDFLAGS = -lext2fs -lcom_err
+LDFLAGS =
 
 # For development builds
 DEBUG_CFLAGS = -g -Wall -DDEBUG -D_FILE_OFFSET_BITS=64
 
 PROG = ext4_visual_defrag
-SRC = ext4_visual_defrag.c
-OBJ = $(SRC:.c=.o)
+SRC_STANDALONE = ext4_visual_defrag_standalone.c
+SRC_FULL = ext4_visual_defrag.c
+OBJ = $(SRC_STANDALONE:.c=.o)
 
+# Build standalone version by default (no external dependencies)
 all: $(PROG)
 
-$(PROG): $(OBJ)
-	$(CC) $(CFLAGS) -o $(PROG) $(OBJ) $(LDFLAGS)
+$(PROG): $(SRC_STANDALONE)
+	$(CC) $(CFLAGS) -o $(PROG) $(SRC_STANDALONE) $(LDFLAGS)
+	@echo ""
+	@echo "✓ Built standalone version successfully!"
+	@echo "  Run with: ./$(PROG) -h"
+
+# Full version requires e2fsprogs-dev libraries
+full: LDFLAGS = -lext2fs -lcom_err
+full: SRC = $(SRC_FULL)
+full:
+	@echo "Building full version (requires e2fsprogs-dev)..."
+	$(CC) $(CFLAGS) -I../../lib -c $(SRC_FULL) -o ext4_visual_defrag_full.o
+	$(CC) $(CFLAGS) -o $(PROG)_full ext4_visual_defrag_full.o $(LDFLAGS)
+	@echo "✓ Built full version successfully!"
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@

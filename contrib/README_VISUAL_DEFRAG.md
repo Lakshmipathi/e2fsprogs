@@ -31,14 +31,37 @@ Unlike traditional Unix tools that output boring text, this tool provides:
 
 ## Building
 
+### Quick Build (Recommended)
+
+The standalone version has no external dependencies and builds instantly:
+
 ```bash
 cd contrib/
 make -f Makefile.defrag
 ```
 
-Or with debug symbols:
+This builds `ext4_visual_defrag` - ready to run!
+
+### Alternative Build Methods
+
+**Simple compilation:**
+```bash
+gcc -O2 ext4_visual_defrag_standalone.c -o ext4_visual_defrag
+```
+
+**Debug build:**
 ```bash
 make -f Makefile.defrag debug
+```
+
+**Full version with e2fsprogs library (requires e2fsprogs-dev):**
+```bash
+make -f Makefile.defrag full
+```
+
+**Using the generic Makefile:**
+```bash
+make
 ```
 
 ## Requirements
