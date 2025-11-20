@@ -1,0 +1,36 @@
+#
+# Makefile for ext4_visual_defrag
+#
+
+CC = gcc
+CFLAGS = -Wall -O2 -D_FILE_OFFSET_BITS=64
+LDFLAGS = -lext2fs -lcom_err
+
+# For development builds
+DEBUG_CFLAGS = -g -Wall -DDEBUG -D_FILE_OFFSET_BITS=64
+
+PROG = ext4_visual_defrag
+SRC = ext4_visual_defrag.c
+OBJ = $(SRC:.c=.o)
+
+all: $(PROG)
+
+$(PROG): $(OBJ)
+	$(CC) $(CFLAGS) -o $(PROG) $(OBJ) $(LDFLAGS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+debug: CFLAGS = $(DEBUG_CFLAGS)
+debug: clean $(PROG)
+
+clean:
+	rm -f $(PROG) $(OBJ)
+
+install: $(PROG)
+	install -m 755 $(PROG) /usr/local/bin/
+
+uninstall:
+	rm -f /usr/local/bin/$(PROG)
+
+.PHONY: all clean debug install uninstall
