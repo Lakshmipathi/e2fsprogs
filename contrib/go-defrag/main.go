@@ -315,7 +315,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.analyzeOnly {
 			m.state = "complete"
-			return m, tea.Quit
+			// Don't quit automatically - let user view results and press 'q'
+			return m, nil
 		} else {
 			m.state = "defragging"
 			return m, defragFilesystem(msg.Files)
@@ -329,12 +330,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case defragCompleteMsg:
 		m.state = "complete"
 		m.statsFinal = msg.Stats
-		return m, tea.Quit
+		// Don't quit automatically - let user view results and press 'q'
+		return m, nil
 
 	case errorMsg:
 		m.state = "error"
 		m.err = msg.Err
-		return m, tea.Quit
+		// Don't quit automatically - let user see error and press 'q'
+		return m, nil
 	}
 
 	return m, nil
